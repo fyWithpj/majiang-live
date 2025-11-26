@@ -29,7 +29,7 @@
 
 ```sh
 # 克隆项目
-git clone https://github.com/your-username/electron-vite-vue.git
+git clone https://github.com/fyWithpj/majiang-live.git
 
 # 进入项目目录
 cd electron-vite-vue
