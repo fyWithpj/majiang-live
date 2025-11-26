@@ -3,6 +3,8 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import type { MatchState } from '../../src/types/match'
+import { defaultMatchState } from '../../src/types/match'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -38,58 +40,114 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0)
 }
 
-let win: BrowserWindow | null = null
+let overlayWindow: BrowserWindow | null = null
+let controlWindow: BrowserWindow | null = null
 const preload = path.join(__dirname, '../preload/index.mjs')
 const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
-async function createWindow() {
-  win = new BrowserWindow({
-    title: 'Main window',
+let matchState: MatchState = { ...defaultMatchState }
+
+const loadRoute = (window: BrowserWindow, route: string) => {
+  if (VITE_DEV_SERVER_URL) {
+    window.loadURL(`${VITE_DEV_SERVER_URL}#/${route}`)
+    // Open devtools for both windows in dev mode
+    window.webContents.openDevTools({ mode: 'detach' })
+  } else {
+    window.loadFile(indexHtml, { hash: route })
+  }
+}
+
+const broadcastState = () => {
+  overlayWindow?.webContents.send('match:state', matchState)
+  controlWindow?.webContents.send('match:state', matchState)
+}
+
+ipcMain.handle('match:get-state', () => matchState)
+
+ipcMain.handle('match:update-state', (_event, payload: MatchState) => {
+  matchState = { ...payload }
+  broadcastState()
+})
+
+async function createWindows() {
+  overlayWindow = new BrowserWindow({
+    title: 'Match Overlay',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    transparent: true, // 开发模式下不透明，方便调试
+    // transparent: !VITE_DEV_SERVER_URL, // 开发模式下不透明，方便调试
+    fullscreen: false,
+    frame: false, // 显示边框，方便调试
+    resizable: true,
+    alwaysOnTop: false,
+    hasShadow: false,
+    skipTaskbar: true,
+    backgroundColor: VITE_DEV_SERVER_URL ? '#00000000' : '#00000000', // 开发模式下有背景色
+    width: 1440,
+    height: 800,
     webPreferences: {
       preload,
-      // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
-      // nodeIntegration: true,
-
-      // Consider using contextBridge.exposeInMainWorld
-      // Read more on https://www.electronjs.org/docs/latest/tutorial/context-isolation
-      // contextIsolation: false,
     },
   })
 
-  if (VITE_DEV_SERVER_URL) { // #298
-    win.loadURL(VITE_DEV_SERVER_URL)
-    // Open devTool if the app is not packaged
-    win.webContents.openDevTools()
-  } else {
-    win.loadFile(indexHtml)
-  }
-
-  // Test actively push message to the Electron-Renderer
-  win.webContents.on('did-finish-load', () => {
-    win?.webContents.send('main-process-message', new Date().toLocaleString())
+  controlWindow = new BrowserWindow({
+    title: '控制面板',
+    icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    width: 1420,
+    height: 900,
+    resizable: true,
+    webPreferences: {
+      preload,
+    },
   })
 
-  // Make all links open with the browser, not with the application
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  loadRoute(overlayWindow, 'overlay')
+  loadRoute(controlWindow, 'control')
+
+  controlWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:')) shell.openExternal(url)
     return { action: 'deny' }
   })
-  // win.webContents.on('will-navigate', (event, url) => { }) #344
+
+  overlayWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:')) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  overlayWindow.on('closed', () => {
+    overlayWindow = null
+  })
+  controlWindow.on('closed', () => {
+    controlWindow = null
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.close()
+    }
+  })
+
+  overlayWindow.webContents.on('did-finish-load', () => {
+    broadcastState()
+    // 确保开发工具在开发模式下打开
+    if (VITE_DEV_SERVER_URL && !overlayWindow?.webContents.isDevToolsOpened()) {
+      overlayWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
+  })
+  controlWindow.webContents.on('did-finish-load', broadcastState)
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindows)
 
 app.on('window-all-closed', () => {
-  win = null
+  overlayWindow = null
+  controlWindow = null
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('second-instance', () => {
-  if (win) {
-    // Focus on the main window if the user tried to open another
-    if (win.isMinimized()) win.restore()
-    win.focus()
+  if (controlWindow) {
+    if (controlWindow.isMinimized()) controlWindow.restore()
+    controlWindow.focus()
+  } else if (overlayWindow) {
+    if (overlayWindow.isMinimized()) overlayWindow.restore()
+    overlayWindow.focus()
   }
 })
 
@@ -98,7 +156,7 @@ app.on('activate', () => {
   if (allWindows.length) {
     allWindows[0].focus()
   } else {
-    createWindow()
+    createWindows()
   }
 })
 

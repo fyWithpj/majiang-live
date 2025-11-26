@@ -1,9 +1,10 @@
 // @see https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "forceCodeSigning": false,
   "appId": "YourAppID",
   "asar": true,
-  "productName": "YourAppName",
+  "productName": "花听直播-madeby比尔",
   "directories": {
     "output": "release/${version}"
   },
@@ -26,7 +27,8 @@
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    "sign": false
   },
   "nsis": {
     "oneClick": false,

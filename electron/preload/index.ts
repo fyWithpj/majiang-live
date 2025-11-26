@@ -1,4 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
+import type { MatchState } from '../../src/types/match'
 
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
@@ -21,6 +22,16 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 
   // You can expose other APTs you need here.
   // ...
+})
+
+contextBridge.exposeInMainWorld('matchAPI', {
+  getState: () => ipcRenderer.invoke('match:get-state') as Promise<MatchState>,
+  updateState: (payload: MatchState) => ipcRenderer.invoke('match:update-state', payload),
+  onStateChange: (callback: (state: MatchState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: MatchState) => callback(state)
+    ipcRenderer.on('match:state', handler)
+    return () => ipcRenderer.removeListener('match:state', handler)
+  },
 })
 
 // --------- Preload scripts loading ---------
