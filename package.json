@@ -1,17 +1,20 @@
 {
-  "name": "electron-vue-vite",
-  "version": "28.1.0",
+  "name": "majiang-live-tool",
+  "version": "1.0.0",
   "main": "dist-electron/main/index.js",
-  "description": "Really simple Electron + Vue + Vite boilerplate.",
-  "author": "草鞋没号 <308487730@qq.com>",
+  "description": "麻将比赛直播辅助工具 - 基于 Electron + Vue + Vite 开发",
+  "author": "比尔 <your-email@example.com>",
   "license": "MIT",
   "private": true,
   "keywords": [
     "electron",
-    "rollup",
-    "vite",
     "vue3",
-    "vue"
+    "vite",
+    "typescript",
+    "majiang",
+    "live-streaming",
+    "overlay",
+    "desktop-app"
   ],
   "debug": {
     "env": {
