@@ -2,7 +2,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "forceCodeSigning": false,
-  "appId": "YourAppID",
+  "appId": "com.fyWithpj.majiang-live",
   "asar": true,
   "productName": "花听直播-madeby比尔",
   "directories": {
@@ -28,7 +28,10 @@
       }
     ],
     "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
-    "sign": false
+    "sign": null,
+    "signingHashAlgorithms": null,
+    "certificateFile": null,
+    "certificatePassword": null
   },
   "nsis": {
     "oneClick": false,

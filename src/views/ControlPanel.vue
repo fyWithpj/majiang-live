@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, onMounted } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
+import { majiangScoreTable } from '../data/majiangScoreTable'
 import type { MatchState, PlayerBoard, TenpaiOption, SeatWind, Meld, MeldTile, PlayerTenpai, TenpaiTile, TileOrientation, TenpaiStatus, TileStatus, MeldType, SourcePlayer } from '../types/match'
+
+// 设置窗口标题
+onMounted(() => {
+  document.title = '花听直播-控制面板-madeby比尔'
+})
 
 const { matchState, updateState } = useMatchState()
 const statusMessage = ref('')
@@ -18,6 +24,8 @@ const windOptions: { label: string; value: SeatWind }[] = [
 const sessionOptions = [
   { label: '东', value: '东' },
   { label: '南', value: '南' },
+  { label: '西', value: '西' },
+  { label: '北', value: '北' },
 ]
 
 const meldTypeOptions = [
@@ -101,8 +109,18 @@ const currentRoundNum = ref<number>(1)
 // Modal states
 const showMeldModal = ref(false)
 const showTenpaiModal = ref(false)
+const showWinModal = ref(false)
 const currentPlayerId = ref<string>('')
-
+const scoreTable = ref<any>(majiangScoreTable.dealerScoreTable)
+const scoreType = ref<'ziMo' | 'rongHe'>('ziMo')
+const winForm = reactive({
+  scoreTable: scoreTable.value,
+  scoreType: scoreType.value,
+  scoreObject: null as PlayerBoard | null,
+  selectedFan: '' as string,
+  selectedFu: '' as string,
+  scoreData: null as any,
+})
 // Meld modal data
 const meldForm = reactive({
   type: 'chi' as MeldType,
@@ -407,17 +425,259 @@ const removeMeld = (playerId: string, meldIndex: number) => {
 }
 
 // Tenpai methods
-const openTenpaiModal = (playerId: string) => {
+const openTenpaiModal = (playerId: string, type: 'tenpai' | 'riichi' = 'tenpai') => {
   currentPlayerId.value = playerId
   const player = form.players.find(p => p.id === playerId)
   if (player?.tenpai) {
     Object.assign(tenpaiForm, player.tenpai)
+    tenpaiForm.status = type
   } else {
-    tenpaiForm.status = 'tenpai'
+    tenpaiForm.status = type
     tenpaiForm.isFuriten = false
     tenpaiForm.tiles = []
   }
   showTenpaiModal.value = true
+}
+
+// Win methods
+const openWinModal = (playerId: string, playerIndex: number, type: 'ziMo' | 'rongHe' = 'ziMo') => {
+  currentPlayerId.value = playerId
+  if (currentRoundNum.value == playerIndex) {
+    scoreTable.value = majiangScoreTable.dealerScoreTable
+  } else {
+    scoreTable.value = majiangScoreTable.playerScoreTable
+  }
+  scoreType.value = type
+  winForm.scoreTable = scoreTable.value
+  winForm.scoreType = type
+  winForm.selectedFan = ''
+  winForm.selectedFu = ''
+  winForm.scoreData = null
+  // 如果是荣和，初始化放铳对象为其他玩家
+  if (type === 'rongHe') {
+    winForm.scoreObject = form.players.find(p => p.id !== playerId) || null
+  } else {
+    winForm.scoreObject = null
+  }
+  showWinModal.value = true
+}
+
+// 获取可用的番数选项
+const getFanOptions = () => {
+  if (!winForm.scoreTable || !winForm.scoreTable.scoreData) return []
+  return Object.keys(winForm.scoreTable.scoreData)
+}
+
+// 获取可用的符数选项
+const getFuOptions = () => {
+  if (!winForm.selectedFan || !winForm.scoreTable || !winForm.scoreTable.scoreData) return []
+  const fanData = winForm.scoreTable.scoreData[winForm.selectedFan]
+  if (!fanData || typeof fanData === 'string' || (fanData.type && !fanData.ron && !fanData.tsumo)) {
+    return []
+  }
+  if (fanData.type) {
+    // 特殊类型（满贯、跳满等），不需要符数
+    return []
+  }
+  return Object.keys(fanData)
+}
+
+// 计算并显示分数
+const calculateScore = () => {
+  if (!winForm.selectedFan || !winForm.scoreTable || !winForm.scoreTable.scoreData) {
+    winForm.scoreData = null
+    return
+  }
+  
+  const fanData = winForm.scoreTable.scoreData[winForm.selectedFan]
+  
+  // 处理特殊类型（满贯、跳满等）
+  if (fanData.type) {
+    winForm.scoreData = fanData
+    return
+  }
+  
+  // 处理需要符数的情况
+  if (!winForm.selectedFu || !fanData[winForm.selectedFu]) {
+    winForm.scoreData = null
+    return
+  }
+  
+  const fuData = fanData[winForm.selectedFu]
+  
+  // 处理特殊值（IM, RIM, TIM）
+  if (typeof fuData === 'string') {
+    winForm.scoreData = { special: fuData }
+    return
+  }
+  
+  winForm.scoreData = fuData
+}
+
+// 监听番数和符数变化
+watch([() => winForm.selectedFan, () => winForm.selectedFu], () => {
+  calculateScore()
+})
+
+const saveWin = () => {
+  const winningPlayer = form.players.find(p => p.id === currentPlayerId.value)
+  if (!winningPlayer) return
+  
+  // 验证必填项
+  if (!winForm.selectedFan) {
+    showToast('请选择番数', 'error')
+    return
+  }
+  
+  const fanData = winForm.scoreTable.scoreData[winForm.selectedFan]
+  
+  // 检查是否需要符数
+  if (!fanData.type && !winForm.selectedFu) {
+    showToast('请选择符数', 'error')
+    return
+  }
+  
+  // 如果是荣和，需要选择放铳对象
+  if (scoreType.value === 'rongHe' && !winForm.scoreObject) {
+    showToast('请选择放铳对象', 'error')
+    return
+  }
+  
+  // 计算分数
+  calculateScore()
+  if (!winForm.scoreData) {
+    showToast('无法计算分数，请检查选择', 'error')
+    return
+  }
+  
+  // 处理特殊值
+  if (winForm.scoreData.special) {
+    showToast(`该组合不可行: ${winForm.scoreData.special}`, 'error')
+    return
+  }
+  
+  // 获取分数值
+  const dealerIndex = currentRoundNum.value - 1
+  const isWinningPlayerDealer = form.players[dealerIndex].id === currentPlayerId.value
+  
+  if (scoreType.value === 'ziMo') {
+    // 自摸
+    if (typeof winForm.scoreData.tsumo === 'number') {
+      // 庄家分数表：每家付相同分数
+      const scorePerPlayer = winForm.scoreData.tsumo
+      form.players.forEach((player) => {
+        if (player.id === currentPlayerId.value) {
+          player.score += scorePerPlayer * 3
+        } else {
+          player.score -= scorePerPlayer
+        }
+      })
+    } else if (winForm.scoreData.tsumo && typeof winForm.scoreData.tsumo === 'object') {
+      // 闲家分数表：庄家和闲家付的分数不同
+      const dealerScore = winForm.scoreData.tsumo.dealer
+      const playerScore = winForm.scoreData.tsumo.player
+      
+      form.players.forEach((player, index) => {
+        const isPlayerDealer = index === dealerIndex
+        if (player.id === currentPlayerId.value) {
+          // 和牌者得分
+          if (isPlayerDealer) {
+            // 庄家自摸，应该不会用闲家表，但以防万一
+            player.score += dealerScore + playerScore * 2
+          } else {
+            // 闲家自摸
+            player.score += dealerScore + playerScore * 2
+          }
+        } else {
+          // 其他玩家付分
+          if (isPlayerDealer) {
+            player.score -= dealerScore
+          } else {
+            player.score -= playerScore
+          }
+        }
+      })
+    } else {
+      showToast('该组合自摸不可行', 'error')
+      return
+    }
+  } else {
+    // 荣和
+    if (!winForm.scoreObject) {
+      showToast('请选择放铳对象', 'error')
+      return
+    }
+    
+    let ronScore: number
+    if (typeof winForm.scoreData.ron === 'number') {
+      ronScore = winForm.scoreData.ron
+    } else if (typeof winForm.scoreData.ron === 'string') {
+      showToast(`该组合荣和不可行: ${winForm.scoreData.ron}`, 'error')
+      return
+    } else {
+      showToast('无法计算分数', 'error')
+      return
+    }
+    
+    // 荣和时，只有放铳者付分
+    winningPlayer.score += ronScore
+    winForm.scoreObject.score -= ronScore
+  }
+  
+  // 本场和立直棒处理
+  if (form.honba > 0) {
+    const honbaScore = form.honba * 300
+    if (scoreType.value === 'ziMo') {
+      // 自摸时，每家付本场费
+      form.players.forEach(player => {
+        if (player.id === currentPlayerId.value) {
+          player.score += honbaScore * 3
+        } else {
+          player.score -= honbaScore
+        }
+      })
+    } else {
+      // 荣和时，只有放铳者付本场费
+      if (winForm.scoreObject) {
+        winningPlayer.score += honbaScore
+        winForm.scoreObject.score -= honbaScore
+      }
+    }
+  }
+  
+  if (form.riichiSticks > 0) {
+    const riichiScore = form.riichiSticks * 1000
+    winningPlayer.score += riichiScore
+    form.riichiSticks = 0
+  }
+  
+  // 清除听牌状态
+  form.players.forEach(player => {
+    player.tenpai = null
+    player.melds = []
+  })
+  
+  
+  // 判断是否连庄
+  if (!isWinningPlayerDealer) {
+    form.honba = 0
+    // 庄家未和牌，进入下一局
+    if (Number(form.currentRound) == 4) {
+      currentRoundNum.value = 1
+      const currentIndex = sessionOptions.findIndex(option => option.value === form.sessionLabel)
+      if (currentIndex !== -1 && currentIndex + 1 < sessionOptions.length) {
+        form.sessionLabel = sessionOptions[currentIndex + 1].value
+      }
+    } else {
+      currentRoundNum.value = Number(form.currentRound) + 1
+    }
+  }else{
+    // 庄家和牌，本场加一
+    form.honba += 1
+  }
+  
+  showWinModal.value = false
+  showToast('和牌分数已更新', 'success')
 }
 
 const addTenpaiTile = () => {
@@ -432,9 +692,79 @@ const removeTenpaiTile = (index: number) => {
   tenpaiForm.tiles.splice(index, 1)
 }
 
+const liuJu = () => {
+  //本场加一
+  form.honba += 1
+  //判断听牌家
+  let tenpaiCount = 0
+  let dealerTenpai = false;
+  form.players.forEach((player, index) => {
+    console.log(player.tenpai)
+    if (player.tenpai) {
+      tenpaiCount += 1
+      if (index + 1 == currentRoundNum.value) {
+        dealerTenpai = true
+      }
+    }
+  })
+  if (!dealerTenpai) {
+    
+    if (currentRoundNum.value == 4) {
+      currentRoundNum.value = 1
+      // 使用sessionOptions的下一个值
+      const currentIndex = sessionOptions.findIndex(option => option.value === form.sessionLabel)
+      if (currentIndex !== -1 && currentIndex + 1 < sessionOptions.length) {
+        form.sessionLabel = sessionOptions[currentIndex + 1].value
+      }
+      // 如果不存在下一个，保持不变，或自定义行为
+    } else {
+      currentRoundNum.value += 1
+    }
+}
+ if (tenpaiCount == 0||tenpaiCount == 4) {
+  //不涉及分数变化
+ }else if (tenpaiCount == 1) {
+  //未听牌家输1000
+  form.players.forEach(player => {
+    if (!player.tenpai) {
+      player.score -= 1000
+    }else{
+      player.score += 3000
+    }
+  })
+ }else if (tenpaiCount == 2) {
+  //未听牌家输1500
+  form.players.forEach(player => {
+    if (!player.tenpai) {
+      player.score -= 1500
+    }else{
+      player.score += 1500
+    }
+  })
+ }else if (tenpaiCount == 3) {
+  //未听牌家输3000
+  form.players.forEach(player => {
+    if (!player.tenpai) {
+      player.score -= 3000
+    }else{
+      player.score += 1000
+    }
+  })
+ }
+ //清除听牌状态
+ form.players.forEach(player => {
+  player.tenpai = null
+  player.melds = []
+ })
+}
+
 const saveTenpai = () => {
   const player = form.players.find(p => p.id === currentPlayerId.value)
   if (player) {
+    if (tenpaiForm.status === 'riichi' && (!player.tenpai || player.tenpai.status !== 'riichi')) {
+      player.score -= 1000
+      form.riichiSticks += 1
+    }
     player.tenpai = {
       status: tenpaiForm.status,
       isFuriten: tenpaiForm.isFuriten,
@@ -614,9 +944,18 @@ const initializePlayerLogoType = (playerId: string) => {
         <!-- <button type="button" class="ghost" @click="addPlayer" :disabled="form.players.length >= 4">+ 添加</button> -->
       </div>
       <p class="hint">建议保持 4 个战队以匹配底部布局。</p>
+      <div class="player-config-container">
+        <button type="button" class="ghost" @click="liuJu()">流局</button>
+      </div>
       <div v-if="!form.players.length" class="empty-tip">尚未添加战队。</div>
       <div class="players-row">
         <article v-for="(player, index) in form.players" :key="player.id" class="player-config">
+          <div class="player-config-container">
+          {{ currentRoundNum == index + 1 ? '亲' : '子' }}
+          <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'ziMo')">自摸</button>
+          <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'rongHe')">荣和</button>
+          <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'riichi')">立直</button>
+        </div>
         <header>
           <h3>战队 {{ index + 1 }}</h3>
           <!-- <button type="button" class="ghost danger" @click="removePlayer(index)">移除</button> -->
@@ -675,7 +1014,7 @@ const initializePlayerLogoType = (playerId: string) => {
           <label class="full">
             <div class="title-row">
               <span>听牌选择</span>
-              <button type="button" class="ghost" @click="openTenpaiModal(player.id)">配置听牌</button>
+              <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'tenpai')">配置听牌</button>
             </div>
             <div v-if="!player.tenpai" class="empty-tip">尚未配置听牌</div>
             <div v-else class="tenpai-preview">
@@ -856,7 +1195,7 @@ const initializePlayerLogoType = (playerId: string) => {
           <div class="grid two">
             <label>
               听牌状态
-              <select v-model="tenpaiForm.status">
+              <select v-model="tenpaiForm.status" disabled>
                 <option value="tenpai">听牌</option>
                 <option value="riichi">立直</option>
               </select>
@@ -901,6 +1240,124 @@ const initializePlayerLogoType = (playerId: string) => {
           <button class="ghost danger" @click="clearTenpai">清除听牌</button>
           <button class="ghost" @click="showTenpaiModal = false">取消</button>
           <button class="primary" @click="saveTenpai">保存听牌</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Win Modal -->
+    <div v-if="showWinModal" class="modal-overlay" @click="showWinModal = false">
+      <div class="modal-content win-modal" @click.stop>
+        <div class="modal-header">
+          <h3>{{ scoreType == 'ziMo' ? '自摸' : '荣和' }}</h3>
+          <button class="close-btn" @click="showWinModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <!-- 放铳对象选择（仅荣和时显示） -->
+          <div v-if="scoreType == 'rongHe'" class="score-section">
+            <label>
+              选择放铳对象
+              <select v-model="winForm.scoreObject" class="score-select">
+                <option :value="null">请选择放铳对象</option>
+                <option 
+                  v-for="player in form.players.filter(p => p.id !== currentPlayerId)" 
+                  :key="player.id" 
+                  :value="player"
+                >
+                  {{ player.badgeText || player.playerName }}
+                </option>
+              </select>
+            </label>
+          </div>
+          
+          <!-- 番数选择 -->
+          <div class="score-section">
+            <label>
+              选择番数
+              <select v-model="winForm.selectedFan" class="score-select">
+                <option value="">请选择番数</option>
+                <option v-for="fan in getFanOptions()" :key="fan" :value="fan">
+                  {{ fan }}
+                </option>
+              </select>
+            </label>
+          </div>
+          
+          <!-- 符数选择（仅在需要时显示） -->
+          <div v-if="winForm.selectedFan && getFuOptions().length > 0" class="score-section">
+            <label>
+              选择符数
+              <select v-model="winForm.selectedFu" class="score-select">
+                <option value="">请选择符数</option>
+                <option v-for="fu in getFuOptions()" :key="fu" :value="fu">
+                  {{ fu }}
+                </option>
+              </select>
+            </label>
+          </div>
+          
+          <!-- 分数显示 -->
+          <div v-if="winForm.scoreData" class="score-display">
+            <div class="score-result">
+              <div class="score-label">和牌分数：</div>
+              <div class="score-value">
+                <template v-if="winForm.scoreData.special">
+                  <span class="special-score">{{ winForm.scoreData.special }}</span>
+                </template>
+                <template v-else-if="winForm.scoreData.type">
+                  <span class="score-type">{{ winForm.scoreData.type }}</span>
+                  <div class="score-details">
+                    <div v-if="scoreType === 'ziMo'">
+                      <span>自摸：</span>
+                      <span v-if="typeof winForm.scoreData.tsumo === 'number'">
+                        {{ winForm.scoreData.tsumo }} × 3 = {{ winForm.scoreData.tsumo * 3 }}点
+                      </span>
+                      <span v-else-if="winForm.scoreData.tsumo && typeof winForm.scoreData.tsumo === 'object'">
+                        庄家 {{ winForm.scoreData.tsumo.dealer }}点，闲家 {{ winForm.scoreData.tsumo.player }}点 × 2
+                      </span>
+                    </div>
+                    <div v-else>
+                      <span>荣和：{{ winForm.scoreData.ron }}点</span>
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="score-details">
+                    <div v-if="scoreType === 'ziMo'">
+                      <span>自摸：</span>
+                      <span v-if="typeof winForm.scoreData.tsumo === 'number'">
+                        {{ winForm.scoreData.tsumo }} × 3 = {{ winForm.scoreData.tsumo * 3 }}点
+                      </span>
+                      <span v-else-if="winForm.scoreData.tsumo && typeof winForm.scoreData.tsumo === 'object'">
+                        庄家 {{ winForm.scoreData.tsumo.dealer }}点，闲家 {{ winForm.scoreData.tsumo.player }}点 × 2
+                      </span>
+                      <span v-else-if="typeof winForm.scoreData.tsumo === 'string'">
+                        {{ winForm.scoreData.tsumo }}
+                      </span>
+                    </div>
+                    <div v-else>
+                      <span>荣和：</span>
+                      <span v-if="typeof winForm.scoreData.ron === 'number'">
+                        {{ winForm.scoreData.ron }}点
+                      </span>
+                      <span v-else>
+                        {{ winForm.scoreData.ron }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div v-if="form.honba > 0" class="bonus-info">
+              本场：{{ form.honba }}本场 × 300 = {{ form.honba * 300 }}点
+            </div>
+            <div v-if="form.riichiSticks > 0" class="bonus-info">
+              立直棒：{{ form.riichiSticks }}本 × 1000 = {{ form.riichiSticks * 1000 }}点
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="ghost" @click="showWinModal = false">取消</button>
+          <button class="primary" @click="saveWin" :disabled="!winForm.selectedFan || (getFuOptions().length > 0 && !winForm.selectedFu) || (scoreType === 'rongHe' && !winForm.scoreObject)">保存</button>
         </div>
       </div>
     </div>
@@ -1692,6 +2149,99 @@ button.primary:disabled {
   border-radius: 4px;
 }
 
+/* Win Modal Styles */
+.win-modal {
+  max-width: 700px;
+}
+
+.score-section {
+  margin-bottom: 20px;
+}
+
+.score-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  font-size: 14px;
+  background: white;
+}
+
+.score-display {
+  margin-top: 24px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border: 2px solid #3b82f6;
+}
+
+.score-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.score-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.score-value {
+  flex: 1;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+.score-type {
+  display: inline-block;
+  padding: 4px 12px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+.score-details {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.6;
+}
+
+.special-score {
+  color: #dc2626;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.bonus-info {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #1e40af;
+}
+
+.player-config-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 520px) {
   .grid.two {
     grid-template-columns: 1fr;
@@ -1705,6 +2255,11 @@ button.primary:disabled {
   .meld-config-item, .tenpai-config-item {
     flex-direction: column;
     align-items: stretch;
+  }
+  
+  .score-result {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

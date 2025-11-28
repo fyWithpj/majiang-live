@@ -1,0 +1,170 @@
+{
+  "dealerScoreTable": {
+    "description": "庄家点数速查，括号内是自摸时每家应付",
+    "scoreData": {
+      "1番": {
+        "20符": "IM",
+        "25符": "IM", 
+        "30符": { "ron": 1500, "tsumo": 500 },
+        "40符": { "ron": 2000, "tsumo": 700 },
+        "50符": { "ron": 2400, "tsumo": 800 },
+        "60符": { "ron": 2900, "tsumo": 1000 },
+        "70符": { "ron": 3400, "tsumo": 1200 },
+        "80符": { "ron": 3900, "tsumo": 1300 },
+        "90符": { "ron": 4400, "tsumo": 1500 },
+        "100符": { "ron": 4800, "tsumo": 1600 },
+        "110符": { "ron": 5300, "tsumo": "TIM" }
+      },
+      "2番": {
+        "20符": { "ron": "RIM", "tsumo": 700 },
+        "25符": { "ron": 2400, "tsumo": "TIM" },
+        "30符": { "ron": 2900, "tsumo": 1000 },
+        "40符": { "ron": 3900, "tsumo": 1300 },
+        "50符": { "ron": 4800, "tsumo": 1600 },
+        "60符": { "ron": 5800, "tsumo": 2000 },
+        "70符": { "ron": 6800, "tsumo": 2300 },
+        "80符": { "ron": 7700, "tsumo": 2600 },
+        "90符": { "ron": 8700, "tsumo": 2900 },
+        "100符": { "ron": 9600, "tsumo": 3200 },
+        "110符": { "ron": 10600, "tsumo": 3600 }
+      },
+      "3番": {
+        "20符": { "ron": "RIM", "tsumo": 1300 },
+        "25符": { "ron": 4800, "tsumo": 1600 },
+        "30符": { "ron": 5800, "tsumo": 2000 },
+        "40符": { "ron": 7700, "tsumo": 2600 },
+        "50符": { "ron": 9600, "tsumo": 3200 },
+        "60符": { "ron": 11600, "tsumo": 3900 },
+        "70符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "80符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "90符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "100符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "110符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
+      },
+      "4番": {
+        "20符": { "ron": "RIM", "tsumo": 2600 },
+        "25符": { "ron": 9600, "tsumo": 3200 },
+        "30符": { "ron": 11600, "tsumo": 3900 },
+        "40符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "50符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "60符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "70符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "80符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "90符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "100符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "110符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
+      },
+      "5番": {
+        "20符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "25符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "30符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "40符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "50符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "60符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "70符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "80符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "90符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "100符": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
+        "110符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
+      },
+      "6番": { "type": "跳满", "ron": 18000, "tsumo": 6000 },
+      "7番": { "type": "跳满", "ron": 18000, "tsumo": 6000 },
+      "8番": { "type": "倍满", "ron": 24000, "tsumo": 8000 },
+      "9番": { "type": "倍满", "ron": 24000, "tsumo": 8000 },
+      "10番": { "type": "倍满", "ron": 24000, "tsumo": 8000 },
+      "11番": { "type": "三倍满", "ron": 36000, "tsumo": 12000 },
+      "12番": { "type": "三倍满", "ron": 36000, "tsumo": 12000 },
+      "13番": { "type": "累计役满", "ron": 48000, "tsumo": 16000 }
+    }
+  },
+  "playerScoreTable": {
+    "description": "闲家点数速查表，括号内大数是自摸时庄家应付，小数是闲家应付",
+    "scoreData": {
+      "1番": {
+        "20符": "IM",
+        "25符": "IM",
+        "30符": { "ron": 1000, "tsumo": { "dealer": 500, "player": 300 } },
+        "40符": { "ron": 1300, "tsumo": { "dealer": 700, "player": 400 } },
+        "50符": { "ron": 1600, "tsumo": { "dealer": 800, "player": 400 } },
+        "60符": { "ron": 2000, "tsumo": { "dealer": 1000, "player": 500 } },
+        "70符": { "ron": 2300, "tsumo": { "dealer": 1200, "player": 600 } },
+        "80符": { "ron": 2600, "tsumo": { "dealer": 1300, "player": 700 } },
+        "90符": { "ron": 2900, "tsumo": { "dealer": 1500, "player": 800 } },
+        "100符": { "ron": 3200, "tsumo": { "dealer": 1600, "player": 800 } },
+        "110符": { "ron": 3600, "tsumo": "TIM" }
+      },
+      "2番": {
+        "20符": { "ron": "RIM", "tsumo": { "dealer": 700, "player": 400 } },
+        "25符": { "ron": 1600, "tsumo": "TIM" },
+        "30符": { "ron": 2000, "tsumo": { "dealer": 1000, "player": 500 } },
+        "40符": { "ron": 2600, "tsumo": { "dealer": 1300, "player": 700 } },
+        "50符": { "ron": 3200, "tsumo": { "dealer": 1600, "player": 800 } },
+        "60符": { "ron": 3900, "tsumo": { "dealer": 2000, "player": 1000 } },
+        "70符": { "ron": 4500, "tsumo": { "dealer": 2300, "player": 1200 } },
+        "80符": { "ron": 5200, "tsumo": { "dealer": 2600, "player": 1300 } },
+        "90符": { "ron": 5800, "tsumo": { "dealer": 2900, "player": 1500 } },
+        "100符": { "ron": 6400, "tsumo": { "dealer": 3200, "player": 1600 } },
+        "110符": { "ron": 7100, "tsumo": { "dealer": 3600, "player": 1800 } }
+      },
+      "3番": {
+        "20符": { "ron": "RIM", "tsumo": { "dealer": 1300, "player": 700 } },
+        "25符": { "ron": 3200, "tsumo": { "dealer": 1600, "player": 800 } },
+        "30符": { "ron": 3900, "tsumo": { "dealer": 2000, "player": 1000 } },
+        "40符": { "ron": 5200, "tsumo": { "dealer": 2600, "player": 1300 } },
+        "50符": { "ron": 6400, "tsumo": { "dealer": 3200, "player": 1600 } },
+        "60符": { "ron": 7700, "tsumo": { "dealer": 3900, "player": 2000 } },
+        "70符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "80符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "90符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "100符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "110符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
+      },
+      "4番": {
+        "20符": { "ron": "RIM", "tsumo": { "dealer": 2600, "player": 1300 } },
+        "25符": { "ron": 6400, "tsumo": { "dealer": 3200, "player": 1600 } },
+        "30符": { "ron": 7700, "tsumo": { "dealer": 3900, "player": 2000 } },
+        "40符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "50符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "60符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "70符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "80符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "90符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "100符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "110符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
+      },
+      "5番": {
+        "20符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "25符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "30符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "40符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "50符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "60符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "70符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "80符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "90符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "100符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
+        "110符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
+      },
+      "6番": { "type": "跳满", "ron": 12000, "tsumo": { "dealer": 6000, "player": 3000 } },
+      "7番": { "type": "跳满", "ron": 12000, "tsumo": { "dealer": 6000, "player": 3000 } },
+      "8番": { "type": "倍满", "ron": 16000, "tsumo": { "dealer": 8000, "player": 4000 } },
+      "9番": { "type": "倍满", "ron": 16000, "tsumo": { "dealer": 8000, "player": 4000 } },
+      "10番": { "type": "倍满", "ron": 16000, "tsumo": { "dealer": 8000, "player": 4000 } },
+      "11番": { "type": "三倍满", "ron": 24000, "tsumo": { "dealer": 12000, "player": 6000 } },
+      "12番": { "type": "三倍满", "ron": 24000, "tsumo": { "dealer": 12000, "player": 6000 } },
+      "13番": { "type": "累计役满", "ron": 32000, "tsumo": { "dealer": 16000, "player": 8000 } }
+    }
+  },
+  "specialTerms": {
+    "IM": "Impossible - 不可能的组合",
+    "RIM": "Riichi Impossible - 立直不可能",
+    "TIM": "Tsumo Impossible - 自摸不可能"
+  },
+  "scoreTypes": {
+    "满贯": "Mangan",
+    "跳满": "Haneman", 
+    "倍满": "Baiman",
+    "三倍满": "Sanbaiman",
+    "累计役满": "Counted Yakuman"
+  }
+}

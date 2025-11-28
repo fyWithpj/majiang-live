@@ -1,9 +1,57 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
 import type { SeatWind } from '../types/match'
 
+// 设置窗口标题
+onMounted(() => {
+  document.title = '花听直播-悬浮窗-madeby比尔'
+})
+
 const { matchState } = useMatchState()
+
+// 分数变化动画数据
+interface ScoreChange {
+  playerId: string
+  change: number
+  id: number
+}
+
+const scoreChanges = ref<ScoreChange[]>([])
+let changeIdCounter = 0
+
+// 监听每个玩家的分数变化
+watch(
+  () => matchState.value.players,
+  (newPlayers, oldPlayers) => {
+    if (!oldPlayers || oldPlayers.length === 0) return
+    
+    newPlayers.forEach((newPlayer, index) => {
+      const oldPlayer = oldPlayers[index]
+      if (oldPlayer && oldPlayer.score !== newPlayer.score) {
+        const change = newPlayer.score - oldPlayer.score
+        if (change !== 0) {
+          // 添加分数变化动画
+          const changeId = changeIdCounter++
+          scoreChanges.value.push({
+            playerId: newPlayer.id,
+            change: change,
+            id: changeId
+          })
+          
+          // 2秒后移除
+          setTimeout(() => {
+            const index = scoreChanges.value.findIndex(c => c.id === changeId)
+            if (index > -1) {
+              scoreChanges.value.splice(index, 1)
+            }
+          }, 2000)
+        }
+      }
+    })
+  },
+  { deep: true }
+)
 
 const resourceModules = import.meta.glob('../Resources/*.png', {
   eager: true,
@@ -61,6 +109,23 @@ const formatScore = (score: number) => {
   const num = Number(score)
   if (Number.isNaN(num)) return score
   return num.toLocaleString()
+}
+
+// 获取分数变化动画的位置样式
+const getScoreChangeStyle = (playerId: string) => {
+  const playerIndex = matchState.value.players.findIndex(p => p.id === playerId)
+  if (playerIndex === -1) return {}
+  
+  // 计算该玩家卡片的位置
+  // 4列布局，每列占 25%，间距 16px
+  // 每列中心位置 = 索引 * 25% + 12.5%（列中心）
+  const columnWidth = 25 // 每列占25%
+  const leftPercent = playerIndex * columnWidth + columnWidth / 2
+  
+  return {
+    left: `${leftPercent}%`,
+    transform: 'translateX(-50%)'
+  }
 }
 </script>
 
@@ -139,6 +204,18 @@ const formatScore = (score: number) => {
 
     <div class="video-gap" />
 
+    <div class="score-row-container">
+      <!-- 分数变化动画 -->
+      <div
+        v-for="change in scoreChanges"
+        :key="change.id"
+        class="score-change-animation"
+        :class="{ positive: change.change > 0, negative: change.change < 0 }"
+        :style="getScoreChangeStyle(change.playerId)"
+      >
+        {{ change.change > 0 ? '+' : '' }}{{ formatScore(change.change) }}
+      </div>
+    </div>
     <section class="score-row">
       <article
         v-for="(player, index) in matchState.players"
@@ -453,10 +530,63 @@ const formatScore = (score: number) => {
   flex: 1;
 }
 
+.score-row-container {
+  position: relative;
+  width: 100%;
+  min-height: 80px;
+  margin-bottom: -80px;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.score-change-animation {
+  position: absolute;
+  top: 20px;
+  font-size: 36px;
+  font-weight: 900;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  animation: scoreChangeFloat 2s ease-out forwards;
+  text-shadow: 
+    0 0 10px rgba(0, 0, 0, 0.8),
+    0 2px 4px rgba(0, 0, 0, 0.6),
+    0 4px 8px rgba(0, 0, 0, 0.4);
+  letter-spacing: 1px;
+}
+
+.score-change-animation.positive {
+  color: #22c55e;
+}
+
+.score-change-animation.negative {
+  color: #ef4444;
+}
+
+@keyframes scoreChangeFloat {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px) scale(0.8);
+  }
+  20% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-20px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-40px) scale(0.8);
+  }
+}
+
 .score-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+  position: relative;
 }
 
 .score-card {

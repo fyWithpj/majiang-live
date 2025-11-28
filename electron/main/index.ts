@@ -29,8 +29,8 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   ? path.join(process.env.APP_ROOT, 'public')
   : RENDERER_DIST
 
-// Disable GPU Acceleration for Windows 7
-if (os.release().startsWith('6.1')) app.disableHardwareAcceleration()
+// Disable Hardware Acceleration
+app.disableHardwareAcceleration()
 
 // Set application name for Windows 10+ notifications
 if (process.platform === 'win32') app.setAppUserModelId(app.getName())
@@ -71,7 +71,7 @@ ipcMain.handle('match:update-state', (_event, payload: MatchState) => {
 
 async function createWindows() {
   overlayWindow = new BrowserWindow({
-    title: 'Match Overlay',
+    title: '花听直播-悬浮窗',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
     transparent: true, // 开发模式下不透明，方便调试
     // transparent: !VITE_DEV_SERVER_URL, // 开发模式下不透明，方便调试
