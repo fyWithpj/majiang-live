@@ -2,7 +2,8 @@
 import { reactive, ref, watch, onMounted } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
 import { majiangScoreTable } from '../data/majiangScoreTable'
-import type { MatchState, PlayerBoard, TenpaiOption, SeatWind, Meld, MeldTile, PlayerTenpai, TenpaiTile, TileOrientation, TenpaiStatus, TileStatus, MeldType, SourcePlayer } from '../types/match'
+import type { MatchState, PlayerBoard, TenpaiOption, SeatWind, Meld, PlayerTenpai, TenpaiTile, TenpaiStatus, TileStatus, MeldType, SourcePlayer } from '../types/match'
+import { Mahgen } from 'mahgen'
 
 // 设置窗口标题
 onMounted(() => {
@@ -42,52 +43,51 @@ const sourcePlayerOptions = [
   { label: '下家', value: 'shimocha' as SourcePlayer },
 ]
 
-// 宝牌资源列表 - 从 Resources 目录动态加载
-const resourceModules = import.meta.glob('../Resources/*.png', {
+// 宝牌资源列表 - 从 res 目录动态加载（仅使用无符号文件）
+const resourceModules = import.meta.glob('../../res/*.png', {
   eager: true,
   import: 'default',
 }) as Record<string, string>
 
+// res 格式的牌名映射（1m, 2p, 1z 等）
 const tileNameMap: Record<string, string> = {
-  m1: '一万', m2: '二万', m3: '三万', m4: '四万', m5: '五万',
-  m6: '六万', m7: '七万', m8: '八万', m9: '九万',
-  p1: '一筒', p2: '二筒', p3: '三筒', p4: '四筒', p5: '五筒',
-  p6: '六筒', p7: '七筒', p8: '八筒', p9: '九筒',
-  s1: '一索', s2: '二索', s3: '三索', s4: '四索', s5: '五索',
-  s6: '六索', s7: '七索', s8: '八索', s9: '九索',
-  ze: '东', zs: '南', zw: '西', zn: '北',
-  zwh: '白',zg: '发',  zr: '中',
+  '1m': '一万', '2m': '二万', '3m': '三万', '4m': '四万', '5m': '五万',
+  '0m': '赤五万', '6m': '六万', '7m': '七万', '8m': '八万', '9m': '九万',
+  '1p': '一筒', '2p': '二筒', '3p': '三筒', '4p': '四筒', '5p': '五筒',
+  '0p': '赤五筒', '6p': '六筒', '7p': '七筒', '8p': '八筒', '9p': '九筒',
+  '1s': '一索', '2s': '二索', '3s': '三索', '4s': '四索', '5s': '五索',
+  '0s': '赤五索', '6s': '六索', '7s': '七索', '8s': '八索', '9s': '九索',
+  '1z': '东', '2z': '南', '3z': '西', '4z': '北',
+  '5z': '白', '6z': '发', '7z': '中',
 }
 
+// 直接使用 mahgen 格式（1m, 2p, 1z 等）
 const treasureTileOptions = Object.entries(resourceModules)
   .map(([path, src]) => {
     const filename = path.split('/').pop() || ''
     const code = filename.replace('.png', '')
+
+    // 必须在 tileNameMap 中存在
+    if (!tileNameMap[code]) {
+      return null
+    }
+
     return {
-      label: tileNameMap[code] || code,
+      label: tileNameMap[code],
       value: filename,
-      code: code,
+      code: code, // 直接使用 mahgen 格式
       src: src,
     }
   })
-  .filter(opt => opt.code !== 'questionmark') // 排除问号图片
+  .filter((opt): opt is NonNullable<typeof opt> => opt !== null) // 过滤掉 null
   .sort((a, b) => {
     // 按 tileNameMap 中定义的顺序排序
     const tileOrder = Object.keys(tileNameMap)
     const aIndex = tileOrder.indexOf(a.code)
     const bIndex = tileOrder.indexOf(b.code)
-    
-    // 如果都在 tileNameMap 中，按索引排序
-    if (aIndex !== -1 && bIndex !== -1) {
-      return aIndex - bIndex
-    }
-    
-    // 如果只有一个在 tileNameMap 中，在 tileNameMap 中的排在前面
-    if (aIndex !== -1) return -1
-    if (bIndex !== -1) return 1
-    
-    // 如果都不在 tileNameMap 中，按字母顺序排序
-    return a.code.localeCompare(b.code)
+
+    // 都在 tileNameMap 中，按索引排序
+    return aIndex - bIndex
   })
 
 const form = reactive<MatchState>({
@@ -125,8 +125,8 @@ const winForm = reactive({
 const meldForm = reactive({
   type: 'chi' as MeldType,
   sourcePlayer: 'kamicha' as SourcePlayer,
-  selectedTiles: [] as string[], // Selected tile codes
-  tiles: [] as MeldTile[]
+  selectedTiles: [] as string[], // Selected tile codes (mahgen format)
+  selectedSecondTile: null as string | null // 第二张牌（用于碰和加杠时的赤色牌）
 })
 
 // Tenpai modal data
@@ -143,42 +143,185 @@ const playerLogoInputTypes = reactive<Record<string, 'url' | 'file'>>({})
 // Helper function to get tile image
 const getTileImage = (code: string) => {
   const tileOption = treasureTileOptions.find(opt => opt.code === code)
-  return tileOption?.src || treasureTileOptions.find(opt => opt.code === 'questionmark')?.src
+  return tileOption?.src || ''
 }
 
-// Helper function to get consecutive horizontal tiles for stacking
-const getConsecutiveHorizontalTiles = (tiles: MeldTile[], startIndex: number) => {
-  const result = []
-  for (let i = startIndex; i < tiles.length; i++) {
-    const tile = tiles[i]
-    if (tile.orientation === 'horizontal' || tile.orientation === 'doublehorizontal') {
-      result.push(tile)
+// 根据选择的牌和副露类型生成 mahgen 序列
+const generateMeldSeq = (type: MeldType, selectedTiles: string[], sourcePlayer: SourcePlayer, selectedSecondTile: string | null): string => {
+  if (type === 'chi') {
+    // 吃：第一张横置，其他竖置
+    return `_${selectedTiles[0]}${selectedTiles[1]}${selectedTiles[2]}`
+  } else if (type === 'ankan') {
+    // 暗杠：0z + 牌 + 牌 + 0z
+    //判断牌数是否带5或0，如果带了，第一张为0，第二张为5
+    if (selectedTiles[0].includes('5') || selectedTiles[0].includes('0')) {
+      // 获取实际是 m/p/s 
+      // 修正 Object is possibly 'null'
+      const match = selectedTiles[0].match(/^\d([mps])$/);
+      const tileType = match ? match[1] : '';
+
+      return `0z0${tileType}5${tileType}0z`
     } else {
-      break
+      return `0z${selectedTiles[0]}${selectedTiles[0]}0z`
     }
-  }
-  return result
-}
+  } else if (type === 'kakan') {
+    // 加杠：两张竖牌 + 加杠的横牌
+    const sourcePlayerNumber = sourcePlayer === 'kamicha' ? 0 : sourcePlayer === 'toimen' ? 1 : 2;
+    const tile = selectedTiles[0];
+    const match = selectedTiles[0].match(/^\d([mps])$/);
+    const tileType = match ? match[1] : '';
 
-// Helper function to check if a tile should be skipped (already rendered in a stack)
-const shouldSkipTile = (tiles: MeldTile[], currentIndex: number) => {
-  // Check if this tile is part of a horizontal stack that started earlier
-  for (let i = 0; i < currentIndex; i++) {
-    const prevTile = tiles[i]
-    if (prevTile.orientation === 'horizontal' || prevTile.orientation === 'doublehorizontal') {
-      // Check if there's a continuous sequence from i to currentIndex
-      let continuous = true
-      for (let j = i; j <= currentIndex; j++) {
-        if (!(tiles[j].orientation === 'horizontal' || tiles[j].orientation === 'doublehorizontal')) {
-          continuous = false
-          break
+    const isKakan = selectedSecondTile !== null;
+    let need0Flag = false;
+    if (selectedTiles[0].includes('5') && selectedSecondTile === null) {
+      need0Flag = true;
+    }
+
+    let seq = '';
+    const is0 = tile.includes('0');
+    const is5 = tile.includes('5');
+
+    for (let i = 0; i < 3; i++) {
+      const isSource = i === sourcePlayerNumber;
+
+      if (is0) {
+        // 🔹 red 0
+        seq += isSource ? `v5${tileType}` : `5${tileType}`;
+        continue;
+      }
+
+      if (is5) {
+        // 🔹 red 5 / dora 5
+        if (isSource) {
+          seq += isKakan ? `v0${tileType}` : `^5${tileType}`;
+        } else {
+          if (need0Flag) {
+            seq += `0${tileType}`;
+            need0Flag = false;
+          } else {
+            seq += `5${tileType}`;
+          }
+        }
+        continue;
+      }
+
+      // 🔹 普通牌
+      seq += isSource ? `^${tile}` : tile;
+    }
+    console.log('sourcePlayerNumber', sourcePlayerNumber);
+    console.log('seq', seq);
+    return seq;
+
+  } else if (type === 'pon') {
+    // 碰：一张横置，其他竖置
+    const sourcePlayerNumber = sourcePlayer === 'kamicha' ? 0 : sourcePlayer === 'toimen' ? 1 : 2
+    let seq = ''
+    let need0Flag = false;
+    console.log('selectedTiles', selectedTiles);
+    if (selectedTiles[0].includes('5') && selectedSecondTile !== null) {
+      need0Flag = true;
+    }
+    const match = selectedTiles[0].match(/^\d([mps])$/);
+    const tileType = match ? match[1] : '';
+    for (let i = 0; i < 3; i++) {
+      if (i === sourcePlayerNumber) {
+        if (selectedTiles[0].includes('0')) {
+          seq += `_0${tileType}`
+        } else {
+          seq += `_${selectedTiles[0]}`
+        }
+      } else {
+        if (need0Flag) {
+          seq += `0${tileType}`
+          need0Flag = false;
+        } else {
+          if(selectedTiles[0].includes('5')||selectedTiles[0].includes('0')){
+            seq += `5${tileType}`;
+          } else {
+            seq += selectedTiles[0];
+          }
         }
       }
-      if (continuous) return true
     }
+    return seq
+  } else if (type === 'minkan') {
+    //明杠：一张横置，其他竖置
+    const sourcePlayerNumber = sourcePlayer === 'kamicha' ? 0 : sourcePlayer === 'toimen' ? 1 : 2
+    let seq = ''
+    //判断牌数是否带5或0，如果带了，第一张为0，第二张为5
+    if (selectedTiles[0].includes('5') || selectedTiles[0].includes('0')) {
+      let need0Flag = selectedTiles[0].includes('5');
+      const match = selectedTiles[0].match(/^\d([mps])$/);
+      const tileType = match ? match[1] : '';
+      for (let i = 0; i < 4; i++) {
+        if (i === sourcePlayerNumber) {
+          seq += `_${selectedTiles[0]}`
+        } else {
+          if (need0Flag) {
+            seq += `0${tileType}`
+            need0Flag = false;
+          } else {
+            seq += `5${tileType}`
+          }
+        }
+      }
+    } else {
+      for (let i = 0; i < 4; i++) {
+        if (i === sourcePlayerNumber) {
+          seq += `_${selectedTiles[0]}`
+        } else {
+          seq += selectedTiles[0]
+        }
+      }
+    }
+
+    return seq
   }
-  return false
+
+  // 默认返回值（理论上不会到达这里）
+  return ''
 }
+
+// 生成副露图片的 base64
+const meldImageCache = ref<Record<string, string>>({})
+
+const getMeldImage = async (meld: Meld): Promise<string> => {
+  const cacheKey = `${meld.id}-${meld.seq}`
+
+  if (meldImageCache.value[cacheKey]) {
+    return meldImageCache.value[cacheKey]
+  }
+
+  try {
+    const base64 = await Mahgen.render(meld.seq, false)
+    meldImageCache.value[cacheKey] = base64
+    return base64
+  } catch (error) {
+    console.error('Failed to render meld:', error)
+    return ''
+  }
+}
+
+// 为每个副露生成图片
+const meldImages = ref<Record<string, string>>({})
+
+watch(
+  () => form.players,
+  async (players) => {
+    for (const player of players) {
+      if (player.melds) {
+        for (const meld of player.melds) {
+          const key = `${player.id}-${meld.id}`
+          if (!meldImages.value[key]) {
+            meldImages.value[key] = await getMeldImage(meld)
+          }
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true }
+)
+
 
 watch(
   matchState,
@@ -188,6 +331,7 @@ watch(
     if (typeof state.treasureTile === 'string') {
       state.treasureTile = state.treasureTile ? [state.treasureTile] : []
     }
+
     Object.assign(form, state)
     const num = Number.parseInt(value.currentRound) || 1
     currentRoundNum.value = num > 0 ? num : 1
@@ -221,7 +365,7 @@ const submit = async () => {
 const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info', duration: number = 3000) => {
   statusMessage.value = message
   statusType.value = type
-  
+
   setTimeout(() => {
     statusMessage.value = ''
     statusType.value = ''
@@ -232,89 +376,89 @@ const clearAllData = () => {
   if (confirm('确定要清空所有数据吗？此操作不可撤销。')) {
     // 重置表单数据
     Object.assign(form, {
-   "sessionLabel": "东",
-   "currentRound": "1",
-   "matchNumber": 0,
-   "fieldSupply": "",
-   "treasureTile": [
-   ],
-   "matchName": "",
-   "matchLogoUrl": "",
-   "subtitle": "",
-   "honba": 0,
-   "riichiSticks": 0,
-   "players": [
-       {
-           "id": "p1",
-           "badgeText": "选手1",
-           "badgeColor": "#6dd400",
-           "playerName": "选手1",
-           "teamName": "战队1",
-           "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-           "tagline": "",
-           "score": 25000,
-           "ptPoint": "",
-           "wind": "",
-           "highlight": false,
-           "melds": [],
-           "tenpai": null,
-       },
-       {
-           "id": "p2",
-           "badgeText": "选手2",
-           "badgeColor": "#f472b6",
-           "playerName": "选手2",
-           "teamName": "战队2",
-           "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-           "tagline": "",
-           "score": 25000,
-           "ptPoint": "",
-           "wind": "",
-           "highlight": false,
-           "melds": [
-     
-           ],
-           "tenpai": null,
-       },
-       {
-           "id": "p3",
-           "badgeText": "选手3",
-           "badgeColor": "#60a5fa",
-           "playerName": "选手3",
-           "teamName": "战队3",
-           "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-           "tagline": "",
-           "score": 25000,
-           "ptPoint": "",
-           "wind": "",
-           "highlight": false,
-           "melds": [],
-           "tenpai": null,
-       },
-       {
-           "id": "p4",
-           "badgeText": "选手4",
-           "badgeColor": "#f59e0b",
-           "playerName": "选手4",
-           "teamName": "战队4",
-           "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-           "tagline": "",
-           "score": 25000,
-           "ptPoint": "",
-           "wind": "",
-           "highlight": false,
-           "melds": [],
-           "tenpai": null,
-       }
-   ]
- })
-    
+      "sessionLabel": "东",
+      "currentRound": "1",
+      "matchNumber": 0,
+      "fieldSupply": "",
+      "treasureTile": [
+      ],
+      "matchName": "",
+      "matchLogoUrl": "",
+      "subtitle": "",
+      "honba": 0,
+      "riichiSticks": 0,
+      "players": [
+        {
+          "id": "p1",
+          "badgeText": "选手1",
+          "badgeColor": "#6dd400",
+          "playerName": "选手1",
+          "teamName": "战队1",
+          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
+          "tagline": "",
+          "score": 25000,
+          "ptPoint": "",
+          "wind": "",
+          "highlight": false,
+          "melds": [],
+          "tenpai": null,
+        },
+        {
+          "id": "p2",
+          "badgeText": "选手2",
+          "badgeColor": "#f472b6",
+          "playerName": "选手2",
+          "teamName": "战队2",
+          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
+          "tagline": "",
+          "score": 25000,
+          "ptPoint": "",
+          "wind": "",
+          "highlight": false,
+          "melds": [
+
+          ],
+          "tenpai": null,
+        },
+        {
+          "id": "p3",
+          "badgeText": "选手3",
+          "badgeColor": "#60a5fa",
+          "playerName": "选手3",
+          "teamName": "战队3",
+          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
+          "tagline": "",
+          "score": 25000,
+          "ptPoint": "",
+          "wind": "",
+          "highlight": false,
+          "melds": [],
+          "tenpai": null,
+        },
+        {
+          "id": "p4",
+          "badgeText": "选手4",
+          "badgeColor": "#f59e0b",
+          "playerName": "选手4",
+          "teamName": "战队4",
+          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
+          "tagline": "",
+          "score": 25000,
+          "ptPoint": "",
+          "wind": "",
+          "highlight": false,
+          "melds": [],
+          "tenpai": null,
+        }
+      ]
+    })
+
     // 重置当前局次数字
     currentRoundNum.value = 1
-    
+
     // 显示成功提示
     showToast('所有数据已清空', 'success')
-    
+
     console.log('所有数据已清空')
   }
 }
@@ -338,25 +482,84 @@ const openMeldModal = (playerId: string) => {
   meldForm.type = 'chi'
   meldForm.sourcePlayer = 'kamicha'
   meldForm.selectedTiles = []
-  meldForm.tiles = []
+  meldForm.selectedSecondTile = null
   showMeldModal.value = true
 }
 
 const toggleTileSelection = (tileCode: string) => {
-  const index = meldForm.selectedTiles.indexOf(tileCode)
-  if (index > -1) {
-    meldForm.selectedTiles.splice(index, 1)
+  // 检查是否在选择第二张牌（碰或加杠，且第一张是5m/5p/5s）
+  const isSelectingSecondTile = (meldForm.type === 'pon' || meldForm.type === 'kakan') &&
+    meldForm.selectedTiles.length === 1 &&
+    meldForm.selectedTiles[0].includes('5') &&
+    !meldForm.selectedTiles[0].includes('0')
+
+  if (isSelectingSecondTile) {
+    // 选择第二张牌（必须是同种类的赤色牌）
+    const firstTile = meldForm.selectedTiles[0]
+    const tileType = firstTile.charAt(1) // 获取 m/p/s
+    const expectedSecondTile = `0${tileType}` // 赤色牌应该是 0m/0p/0s
+
+    if (tileCode === expectedSecondTile) {
+      // 切换第二张牌的选择
+      meldForm.selectedSecondTile = meldForm.selectedSecondTile === tileCode ? null : tileCode
+    } else {
+      // 如果不是同种类的赤色牌，不允许选择
+      return
+    }
   } else {
-    // Check selection limits based on meld type
-    const maxTiles = meldForm.type === 'chi' ? 3 : 1
-    if (meldForm.selectedTiles.length < maxTiles) {
-      meldForm.selectedTiles.push(tileCode)
+    // 正常选择第一张牌
+    const index = meldForm.selectedTiles.indexOf(tileCode)
+    if (index > -1) {
+      meldForm.selectedTiles.splice(index, 1)
+      // 如果取消第一张牌，也清除第二张牌
+      if (meldForm.selectedTiles.length === 0) {
+        meldForm.selectedSecondTile = null
+      }
+    } else {
+      // Check selection limits based on meld type
+      const maxTiles = meldForm.type === 'chi' ? 3 : 1
+      if (meldForm.selectedTiles.length < maxTiles) {
+        meldForm.selectedTiles.push(tileCode)
+        // 如果选择的是5m/5p/5s，清空第二张牌选择（让用户重新选择）
+        if (tileCode.includes('5') && !tileCode.includes('0')) {
+          meldForm.selectedSecondTile = null
+        } else {
+          // 如果不是5，清除第二张牌选择
+          meldForm.selectedSecondTile = null
+        }
+      }
     }
   }
 }
 
 const isTileSelected = (tileCode: string) => {
-  return meldForm.selectedTiles.includes(tileCode)
+  return meldForm.selectedTiles.includes(tileCode) || meldForm.selectedSecondTile === tileCode
+}
+
+// 检查是否可以点击某张牌（用于第二张牌的选择限制）
+const isTileClickable = (tileCode: string) => {
+  // 如果还没有选择第一张牌，所有牌都可以点击
+  if (meldForm.selectedTiles.length === 0) {
+    return true
+  }
+
+  // 检查是否在选择第二张牌（碰或加杠，且第一张是5m/5p/5s）
+  const isSelectingSecondTile = (meldForm.type === 'pon' || meldForm.type === 'kakan') &&
+    meldForm.selectedTiles.length === 1 &&
+    meldForm.selectedTiles[0] &&
+    meldForm.selectedTiles[0].includes('5') &&
+    !meldForm.selectedTiles[0].includes('0')
+
+  if (isSelectingSecondTile) {
+    // 第二张牌必须是同种类的赤色牌
+    const firstTile = meldForm.selectedTiles[0]
+    const tileType = firstTile.charAt(1) // 获取 m/p/s（格式是 5m，所以 charAt(1) 是 m）
+    const expectedSecondTile = `0${tileType}` // 赤色牌应该是 0m/0p/0s
+    return tileCode === expectedSecondTile
+  }
+
+  // 其他情况都可以点击
+  return true
 }
 
 const saveMeld = () => {
@@ -367,53 +570,19 @@ const saveMeld = () => {
     alert(`${typeName}需要选择${requiredTiles}张牌`)
     return
   }
-  
+
   const player = form.players.find(p => p.id === currentPlayerId.value)
   if (player) {
-    // Generate tiles with proper orientations
-    const tiles: MeldTile[] = []
-    
-    if (meldForm.type === 'chi') {
-      // For chi, first tile is horizontal (from source player), others vertical
-      meldForm.selectedTiles.forEach((code, index) => {
-        tiles.push({
-          code,
-          orientation: index === 0 ? 'horizontal' : 'vertical'
-        })
-      })
-    } else if (meldForm.type === 'ankan') {
-      for (let i = 0; i < 4; i++) {
-        tiles.push({
-          code: meldForm.selectedTiles[0],
-          orientation: i === 0||i === 3 ? 'backend' : 'vertical'
-        })
-      }
-    } else {
-      // For pon/kan, one tile horizontal (from source player), others vertical
-      const tileCode = meldForm.selectedTiles[0]
-      console.log(meldForm.type)
-      const tileCount = meldForm.type === 'pon' || meldForm.type === 'kakan' ? 3 : 4
-      console.log(tileCount)
-      const sourcePlayerNumber = meldForm.sourcePlayer === 'kamicha' ? 0 : meldForm.sourcePlayer === 'toimen' ? 1 : 2
-      
-      for (let i = 0; i < tileCount; i++) {
-        tiles.push({
-          code: tileCode,
-          orientation: i === sourcePlayerNumber ? meldForm.type === 'kakan' ? 'doublehorizontal' : 'horizontal' : 'vertical'
-        })
-      }
-    }
-    
+    // 直接生成 mahgen 序列字符串
+    const seq = generateMeldSeq(meldForm.type, meldForm.selectedTiles, meldForm.sourcePlayer, meldForm.selectedSecondTile)
+
     const newMeld: Meld = {
       id: Date.now().toString(),
-      type: meldForm.type,
-      tiles,
-      sourcePlayer: meldForm.type === 'ankan' ? undefined : meldForm.sourcePlayer
+      seq: seq
     }
-    console.log(JSON.parse(JSON.stringify(newMeld)))
     player.melds.push(newMeld)
   }
-  
+
   showMeldModal.value = false
 }
 
@@ -488,29 +657,29 @@ const calculateScore = () => {
     winForm.scoreData = null
     return
   }
-  
+
   const fanData = winForm.scoreTable.scoreData[winForm.selectedFan]
-  
+
   // 处理特殊类型（满贯、跳满等）
   if (fanData.type) {
     winForm.scoreData = fanData
     return
   }
-  
+
   // 处理需要符数的情况
   if (!winForm.selectedFu || !fanData[winForm.selectedFu]) {
     winForm.scoreData = null
     return
   }
-  
+
   const fuData = fanData[winForm.selectedFu]
-  
+
   // 处理特殊值（IM, RIM, TIM）
   if (typeof fuData === 'string') {
     winForm.scoreData = { special: fuData }
     return
   }
-  
+
   winForm.scoreData = fuData
 }
 
@@ -522,44 +691,44 @@ watch([() => winForm.selectedFan, () => winForm.selectedFu], () => {
 const saveWin = () => {
   const winningPlayer = form.players.find(p => p.id === currentPlayerId.value)
   if (!winningPlayer) return
-  
+
   // 验证必填项
   if (!winForm.selectedFan) {
     showToast('请选择番数', 'error')
     return
   }
-  
+
   const fanData = winForm.scoreTable.scoreData[winForm.selectedFan]
-  
+
   // 检查是否需要符数
   if (!fanData.type && !winForm.selectedFu) {
     showToast('请选择符数', 'error')
     return
   }
-  
+
   // 如果是荣和，需要选择放铳对象
   if (scoreType.value === 'rongHe' && !winForm.scoreObject) {
     showToast('请选择放铳对象', 'error')
     return
   }
-  
+
   // 计算分数
   calculateScore()
   if (!winForm.scoreData) {
     showToast('无法计算分数，请检查选择', 'error')
     return
   }
-  
+
   // 处理特殊值
   if (winForm.scoreData.special) {
     showToast(`该组合不可行: ${winForm.scoreData.special}`, 'error')
     return
   }
-  
+
   // 获取分数值
   const dealerIndex = currentRoundNum.value - 1
   const isWinningPlayerDealer = form.players[dealerIndex].id === currentPlayerId.value
-  
+
   if (scoreType.value === 'ziMo') {
     // 自摸
     if (typeof winForm.scoreData.tsumo === 'number') {
@@ -576,7 +745,7 @@ const saveWin = () => {
       // 闲家分数表：庄家和闲家付的分数不同
       const dealerScore = winForm.scoreData.tsumo.dealer
       const playerScore = winForm.scoreData.tsumo.player
-      
+
       form.players.forEach((player, index) => {
         const isPlayerDealer = index === dealerIndex
         if (player.id === currentPlayerId.value) {
@@ -607,7 +776,7 @@ const saveWin = () => {
       showToast('请选择放铳对象', 'error')
       return
     }
-    
+
     let ronScore: number
     if (typeof winForm.scoreData.ron === 'number') {
       ronScore = winForm.scoreData.ron
@@ -618,12 +787,12 @@ const saveWin = () => {
       showToast('无法计算分数', 'error')
       return
     }
-    
+
     // 荣和时，只有放铳者付分
     winningPlayer.score += ronScore
     winForm.scoreObject.score -= ronScore
   }
-  
+
   // 本场和立直棒处理
   if (form.honba > 0) {
     const honbaScore = form.honba * 300
@@ -644,20 +813,20 @@ const saveWin = () => {
       }
     }
   }
-  
+
   if (form.riichiSticks > 0) {
     const riichiScore = form.riichiSticks * 1000
     winningPlayer.score += riichiScore
     form.riichiSticks = 0
   }
-  
+
   // 清除听牌状态
   form.players.forEach(player => {
     player.tenpai = null
     player.melds = []
   })
-  
-  
+
+
   // 判断是否连庄
   if (!isWinningPlayerDealer) {
     form.honba = 0
@@ -671,11 +840,11 @@ const saveWin = () => {
     } else {
       currentRoundNum.value = Number(form.currentRound) + 1
     }
-  }else{
+  } else {
     // 庄家和牌，本场加一
     form.honba += 1
   }
-  
+
   showWinModal.value = false
   showToast('和牌分数已更新', 'success')
 }
@@ -708,7 +877,7 @@ const liuJu = () => {
     }
   })
   if (!dealerTenpai) {
-    
+
     if (currentRoundNum.value == 4) {
       currentRoundNum.value = 1
       // 使用sessionOptions的下一个值
@@ -720,42 +889,42 @@ const liuJu = () => {
     } else {
       currentRoundNum.value += 1
     }
-}
- if (tenpaiCount == 0||tenpaiCount == 4) {
-  //不涉及分数变化
- }else if (tenpaiCount == 1) {
-  //未听牌家输1000
+  }
+  if (tenpaiCount == 0 || tenpaiCount == 4) {
+    //不涉及分数变化
+  } else if (tenpaiCount == 1) {
+    //未听牌家输1000
+    form.players.forEach(player => {
+      if (!player.tenpai) {
+        player.score -= 1000
+      } else {
+        player.score += 3000
+      }
+    })
+  } else if (tenpaiCount == 2) {
+    //未听牌家输1500
+    form.players.forEach(player => {
+      if (!player.tenpai) {
+        player.score -= 1500
+      } else {
+        player.score += 1500
+      }
+    })
+  } else if (tenpaiCount == 3) {
+    //未听牌家输3000
+    form.players.forEach(player => {
+      if (!player.tenpai) {
+        player.score -= 3000
+      } else {
+        player.score += 1000
+      }
+    })
+  }
+  //清除听牌状态
   form.players.forEach(player => {
-    if (!player.tenpai) {
-      player.score -= 1000
-    }else{
-      player.score += 3000
-    }
+    player.tenpai = null
+    player.melds = []
   })
- }else if (tenpaiCount == 2) {
-  //未听牌家输1500
-  form.players.forEach(player => {
-    if (!player.tenpai) {
-      player.score -= 1500
-    }else{
-      player.score += 1500
-    }
-  })
- }else if (tenpaiCount == 3) {
-  //未听牌家输3000
-  form.players.forEach(player => {
-    if (!player.tenpai) {
-      player.score -= 3000
-    }else{
-      player.score += 1000
-    }
-  })
- }
- //清除听牌状态
- form.players.forEach(player => {
-  player.tenpai = null
-  player.melds = []
- })
 }
 
 const saveTenpai = () => {
@@ -831,7 +1000,7 @@ const initializePlayerLogoType = (playerId: string) => {
         <button class="toast-close" @click="statusMessage = ''; statusType = ''" type="button">×</button>
       </div>
     </div>
-    
+
     <h1>赛事控制面板</h1>
     <section>
       <h2>牌局信息</h2>
@@ -861,7 +1030,8 @@ const initializePlayerLogoType = (playerId: string) => {
             <h2 style="margin: 0;">宝牌</h2>
             <div style="display: flex; gap: 8px;">
               <button type="button" class="ghost" @click="addTreasureTile">+ 添加</button>
-              <button type="button" class="ghost danger" @click="clearTreasureTiles" :disabled="!form.treasureTile.length">清空</button>
+              <button type="button" class="ghost danger" @click="clearTreasureTiles"
+                :disabled="!form.treasureTile.length">清空</button>
             </div>
           </div>
           <div v-if="!form.treasureTile.length" class="empty-tip">尚未添加宝牌，点击上方按钮添加。</div>
@@ -875,10 +1045,8 @@ const initializePlayerLogoType = (playerId: string) => {
                   </option>
                 </select>
                 <div v-if="form.treasureTile[index]" class="treasure-preview">
-                  <img 
-                    :src="treasureTileOptions.find(opt => opt.value === form.treasureTile[index])?.src" 
-                    :alt="form.treasureTile[index]" 
-                  />
+                  <img :src="treasureTileOptions.find(opt => opt.value === form.treasureTile[index])?.src"
+                    :alt="form.treasureTile[index]" />
                 </div>
               </div>
               <button type="button" class="ghost danger" @click="removeTreasureTile(index)">移除</button>
@@ -902,34 +1070,19 @@ const initializePlayerLogoType = (playerId: string) => {
             <div class="title-row">
               <span>比赛 Logo</span>
               <div class="input-type-buttons">
-                <button 
-                  type="button"
-                  :class="['input-type-btn', { active: matchLogoInputType === 'url' }]"
-                  @click="matchLogoInputType = 'url'"
-                >
+                <button type="button" :class="['input-type-btn', { active: matchLogoInputType === 'url' }]"
+                  @click="matchLogoInputType = 'url'">
                   链接
                 </button>
-                <button 
-                  type="button"
-                  :class="['input-type-btn', { active: matchLogoInputType === 'file' }]"
-                  @click="matchLogoInputType = 'file'"
-                >
+                <button type="button" :class="['input-type-btn', { active: matchLogoInputType === 'file' }]"
+                  @click="matchLogoInputType = 'file'">
                   本地图片
                 </button>
               </div>
             </div>
-            <input 
-              v-if="matchLogoInputType === 'url'"
-              v-model="form.matchLogoUrl" 
-              placeholder="https://example.com/logo.png" 
-            />
-            <input 
-              v-else
-              type="file"
-              accept="image/*"
-              @change="handleMatchLogoFile"
-              class="file-input"
-            />
+            <input v-if="matchLogoInputType === 'url'" v-model="form.matchLogoUrl"
+              placeholder="https://example.com/logo.png" />
+            <input v-else type="file" accept="image/*" @change="handleMatchLogoFile" class="file-input" />
             <div v-if="form.matchLogoUrl" class="image-preview">
               <img :src="form.matchLogoUrl" alt="比赛Logo预览" class="preview-image" />
             </div>
@@ -951,133 +1104,100 @@ const initializePlayerLogoType = (playerId: string) => {
       <div class="players-row">
         <article v-for="(player, index) in form.players" :key="player.id" class="player-config">
           <div class="player-config-container">
-          {{ currentRoundNum == index + 1 ? '亲' : '子' }}
-          <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'ziMo')">自摸</button>
-          <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'rongHe')">荣和</button>
-          <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'riichi')">立直</button>
-        </div>
-        <header>
-          <h3>战队 {{ index + 1 }}</h3>
-          <!-- <button type="button" class="ghost danger" @click="removePlayer(index)">移除</button> -->
-        </header>
-        <div class="grid one">
-          <label>
-            选手名称
-            <input v-model="player.badgeText" />
-          </label>
-          <label>
-            名称颜色
-            <input :style="{ background: player.badgeColor }" v-model="player.badgeColor" type="color" />
-          </label>
-          <!-- <label>
+            {{ currentRoundNum == index + 1 ? '亲' : '子' }}
+            <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'ziMo')">自摸</button>
+            <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'rongHe')">荣和</button>
+            <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'riichi')">立直</button>
+          </div>
+          <header>
+            <h3>战队 {{ index + 1 }}</h3>
+            <!-- <button type="button" class="ghost danger" @click="removePlayer(index)">移除</button> -->
+          </header>
+          <div class="grid one">
+            <label>
+              选手名称
+              <input v-model="player.badgeText" />
+            </label>
+            <label>
+              名称颜色
+              <input :style="{ background: player.badgeColor }" v-model="player.badgeColor" type="color" />
+            </label>
+            <!-- <label>
             选手名称
             <input v-model="player.playerName" />
           </label> -->
-          <label class="full">
-            <div class="title-row">
-              <span>副露选择</span>
-              <button type="button" class="ghost" @click="openMeldModal(player.id)">+ 添加副露</button>
-            </div>
-            <div v-if="!player.melds.length" class="empty-tip">尚未添加副露</div>
-            <div class="meld-list">
+            <label class="full">
+              <div class="title-row">
+                <span>副露选择</span>
+                <button type="button" class="ghost" @click="openMeldModal(player.id)">+ 添加副露</button>
+              </div>
+              <div v-if="!player.melds.length" class="empty-tip">尚未添加副露</div>
+              <div class="meld-list">
                 <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" class="meld-item">
                   <div class="meld-preview">
-                    <span v-for="(tile, tileIndex) in meld.tiles" :key="`${meld.id}-${tile.code}-${tileIndex}`">
-                      <template v-if="tile.orientation === 'horizontal' || tile.orientation === 'doublehorizontal'">
-                        <div class="horizontal-stack-preview">
-                          <img 
-                            :src="getTileImage(tile.code)"
-                            :alt="tile.code"
-                            :class="['meld-tile', tile.orientation]"
-                          />
-                          <img 
-                            v-if="tile.orientation === 'doublehorizontal'" 
-                            :src="getTileImage(tile.code)" 
-                            :alt="tile.code" 
-                            class="meld-tile doublehorizontal" 
-                          />
-                        </div>
-                      </template>
-                      <template v-else>
-                        <img 
-                          :src="getTileImage(tile.code)"
-                          :alt="tile.code"
-                          :class="['meld-tile', tile.orientation]"
-                        />
-                      </template>
-                    </span>
+                    <img v-if="meldImages[`${player.id}-${meld.id}`]" :src="meldImages[`${player.id}-${meld.id}`]"
+                      :alt="`meld-${meld.id}`" class="meld-image" />
                   </div>
                   <button type="button" class="ghost danger" @click="removeMeld(player.id, meldIndex)">移除</button>
                 </div>
-            </div>
-          </label>
-          <label class="full">
-            <div class="title-row">
-              <span>听牌选择</span>
-              <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'tenpai')">配置听牌</button>
-            </div>
-            <div v-if="!player.tenpai" class="empty-tip">尚未配置听牌</div>
-            <div v-else class="tenpai-preview">
-              <div class="tenpai-status">
-                <span class="status-badge" :class="player.tenpai.status">{{ player.tenpai.status === 'riichi' ? '立直' : '听牌' }}</span>
-                <span v-if="player.tenpai.isFuriten" class="furiten-badge">振听</span>
               </div>
-              <div class="tenpai-tiles">
-                <div v-for="tile in player.tenpai.tiles" :key="tile.code" class="tenpai-tile-item">
-                  <img :src="getTileImage(tile.code)" :alt="tile.code" class="tenpai-tile" />
-                  <span class="tile-status" :class="tile.status">{{ tile.status === 'yaku' ? '有役' : '无役' }}</span>
-                  <span v-if="tile.count" class="tile-count">{{ tile.count }}张</span>
-                </div>
-              </div>
-            </div>
-          </label>
-          <label class="full">
-            <div class="image-input-section">
+            </label>
+            <label class="full">
               <div class="title-row">
-                <span>战队 Logo</span>
-                <div class="input-type-buttons">
-                  <button 
-                    type="button"
-                    :class="['input-type-btn', { active: (playerLogoInputTypes[player.id] || 'url') === 'url' }]"
-                    @click="initializePlayerLogoType(player.id); playerLogoInputTypes[player.id] = 'url'"
-                  >
-                    链接
-                  </button>
-                  <button 
-                    type="button"
-                    :class="['input-type-btn', { active: (playerLogoInputTypes[player.id] || 'url') === 'file' }]"
-                    @click="initializePlayerLogoType(player.id); playerLogoInputTypes[player.id] = 'file'"
-                  >
-                    本地图片
-                  </button>
+                <span>听牌选择</span>
+                <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'tenpai')">配置听牌</button>
+              </div>
+              <div v-if="!player.tenpai" class="empty-tip">尚未配置听牌</div>
+              <div v-else class="tenpai-preview">
+                <div class="tenpai-status">
+                  <span class="status-badge" :class="player.tenpai.status">{{ player.tenpai.status === 'riichi' ? '立直' :
+                    '听牌' }}</span>
+                  <span v-if="player.tenpai.isFuriten" class="furiten-badge">振听</span>
+                </div>
+                <div class="tenpai-tiles">
+                  <div v-for="tile in player.tenpai.tiles" :key="tile.code" class="tenpai-tile-item">
+                    <img :src="getTileImage(tile.code)" :alt="tile.code" class="tenpai-tile" />
+                    <span class="tile-status" :class="tile.status">{{ tile.status === 'yaku' ? '有役' : '无役' }}</span>
+                    <span v-if="tile.count" class="tile-count">{{ tile.count }}张</span>
+                  </div>
                 </div>
               </div>
-              <input 
-                v-if="(playerLogoInputTypes[player.id] || 'url') === 'url'"
-                v-model="player.teamLogoUrl" 
-                placeholder="https://example.com/team.png" 
-              />
-              <input 
-                v-else
-                type="file"
-                accept="image/*"
-                @change="handlePlayerLogoFile(player.id, $event)"
-                class="file-input"
-              />
-              <div v-if="player.teamLogoUrl" class="image-preview">
-                <img :src="player.teamLogoUrl" alt="战队Logo预览" class="preview-image" />
+            </label>
+            <label class="full">
+              <div class="image-input-section">
+                <div class="title-row">
+                  <span>战队 Logo</span>
+                  <div class="input-type-buttons">
+                    <button type="button"
+                      :class="['input-type-btn', { active: (playerLogoInputTypes[player.id] || 'url') === 'url' }]"
+                      @click="initializePlayerLogoType(player.id); playerLogoInputTypes[player.id] = 'url'">
+                      链接
+                    </button>
+                    <button type="button"
+                      :class="['input-type-btn', { active: (playerLogoInputTypes[player.id] || 'url') === 'file' }]"
+                      @click="initializePlayerLogoType(player.id); playerLogoInputTypes[player.id] = 'file'">
+                      本地图片
+                    </button>
+                  </div>
+                </div>
+                <input v-if="(playerLogoInputTypes[player.id] || 'url') === 'url'" v-model="player.teamLogoUrl"
+                  placeholder="https://example.com/team.png" />
+                <input v-else type="file" accept="image/*" @change="handlePlayerLogoFile(player.id, $event)"
+                  class="file-input" />
+                <div v-if="player.teamLogoUrl" class="image-preview">
+                  <img :src="player.teamLogoUrl" alt="战队Logo预览" class="preview-image" />
+                </div>
               </div>
-            </div>
-          </label>
-          <!-- <label class="full">
+            </label>
+            <!-- <label class="full">
             副标题/口号
             <input v-model="player.tagline" placeholder="例：齐柏林未潜艇" />
           </label> -->
-          <label>
-            分数
-            <input v-model.number="player.score" type="number" />
-          </label>
-          <!-- <label>
+            <label>
+              分数
+              <input v-model.number="player.score" type="number" />
+            </label>
+            <!-- <label>
             座位风
             <select v-model="player.wind">
               <option v-for="opt in windOptions" :key="opt.value" :value="opt.value">
@@ -1085,12 +1205,12 @@ const initializePlayerLogoType = (playerId: string) => {
               </option>
             </select>
           </label> -->
-          <!-- <label class="radio">
+            <!-- <label class="radio">
             <input v-model="player.highlight" type="radio" />
             设为当前焦点
           </label> -->
-        </div>
-      </article>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -1117,13 +1237,9 @@ const initializePlayerLogoType = (playerId: string) => {
           <div class="meld-type-section">
             <label>副露类型</label>
             <div class="meld-type-buttons">
-              <button 
-                v-for="option in meldTypeOptions" 
-                :key="option.value"
-                type="button"
+              <button v-for="option in meldTypeOptions" :key="option.value" type="button"
                 :class="['meld-type-btn', { active: meldForm.type === option.value }]"
-                @click="meldForm.type = option.value; meldForm.selectedTiles = []"
-              >
+                @click="meldForm.type = option.value; meldForm.selectedTiles = []; meldForm.selectedSecondTile = null">
                 {{ option.label }}
               </button>
             </div>
@@ -1133,13 +1249,9 @@ const initializePlayerLogoType = (playerId: string) => {
           <div v-if="meldForm.type !== 'ankan'" class="source-player-section">
             <label>吃碰家</label>
             <div class="source-player-buttons">
-              <button 
-                v-for="option in sourcePlayerOptions" 
-                :key="option.value"
-                type="button"
+              <button v-for="option in sourcePlayerOptions" :key="option.value" type="button"
                 :class="['source-player-btn', { active: meldForm.sourcePlayer === option.value }]"
-                @click="meldForm.sourcePlayer = option.value"
-              >
+                @click="meldForm.sourcePlayer = option.value">
                 {{ option.label }}
               </button>
             </div>
@@ -1148,18 +1260,25 @@ const initializePlayerLogoType = (playerId: string) => {
           <!-- Tile Selection Grid -->
           <div class="tile-selection-section">
             <label>
-              选择牌张 
+              选择牌张
               <span class="selection-hint">
-                ({{ meldForm.type === 'chi' ? '需要选择3张牌' : '只需选择1张牌' }})
+                <template v-if="meldForm.type === 'chi'">
+                  需要选择3张牌
+                </template>
+                <template
+                  v-else-if="(meldForm.type === 'pon' || meldForm.type === 'kakan') && meldForm.selectedTiles.length > 0 && meldForm.selectedTiles[0] && meldForm.selectedTiles[0].includes('5')">
+                  已选择第一张牌，请选择同种类的赤色牌作为第二张（可选）
+                </template>
+                <template v-else>
+                  只需选择1张牌
+                </template>
               </span>
             </label>
             <div class="tile-grid">
-              <div 
-                v-for="option in treasureTileOptions" 
-                :key="option.code"
-                :class="['tile-option', { selected: isTileSelected(option.code) }]"
-                @click="toggleTileSelection(option.code)"
-              >
+              <div v-for="option in treasureTileOptions" :key="option.code" :class="['tile-option', {
+                selected: isTileSelected(option.code),
+                disabled: !isTileClickable(option.code)
+              }]" @click="isTileClickable(option.code) && toggleTileSelection(option.code)">
                 <img :src="option.src" :alt="option.label" class="tile-image" />
                 <span class="tile-label">{{ option.label }}</span>
               </div>
@@ -1172,7 +1291,12 @@ const initializePlayerLogoType = (playerId: string) => {
             <div class="selected-tiles">
               <div v-for="tileCode in meldForm.selectedTiles" :key="tileCode" class="selected-tile">
                 <img :src="getTileImage(tileCode)" :alt="tileCode" class="selected-tile-image" />
-                <span>{{ treasureTileOptions.find(opt => opt.code === tileCode)?.label }}</span>
+                <span>{{treasureTileOptions.find(opt => opt.code === tileCode)?.label}}</span>
+              </div>
+              <div v-if="meldForm.selectedSecondTile" class="selected-tile">
+                <img :src="getTileImage(meldForm.selectedSecondTile)" :alt="meldForm.selectedSecondTile"
+                  class="selected-tile-image" />
+                <span>{{treasureTileOptions.find(opt => opt.code === meldForm.selectedSecondTile)?.label}} (第二张)</span>
               </div>
             </div>
           </div>
@@ -1221,14 +1345,8 @@ const initializePlayerLogoType = (playerId: string) => {
                 <option value="yaku">有役</option>
                 <option value="noyaku">无役</option>
               </select>
-              <input 
-                v-model.number="tile.count" 
-                type="number" 
-                min="1" 
-                max="4" 
-                placeholder="数量(可选)"
-                class="count-input"
-              />
+              <input v-model.number="tile.count" type="number" min="1" max="4" placeholder="数量(可选)"
+                class="count-input" />
               <div v-if="tile.code" class="tile-preview">
                 <img :src="getTileImage(tile.code)" :alt="tile.code" class="preview-tile" />
               </div>
@@ -1258,17 +1376,14 @@ const initializePlayerLogoType = (playerId: string) => {
               选择放铳对象
               <select v-model="winForm.scoreObject" class="score-select">
                 <option :value="null">请选择放铳对象</option>
-                <option 
-                  v-for="player in form.players.filter(p => p.id !== currentPlayerId)" 
-                  :key="player.id" 
-                  :value="player"
-                >
+                <option v-for="player in form.players.filter(p => p.id !== currentPlayerId)" :key="player.id"
+                  :value="player">
                   {{ player.badgeText || player.playerName }}
                 </option>
               </select>
             </label>
           </div>
-          
+
           <!-- 番数选择 -->
           <div class="score-section">
             <label>
@@ -1281,7 +1396,7 @@ const initializePlayerLogoType = (playerId: string) => {
               </select>
             </label>
           </div>
-          
+
           <!-- 符数选择（仅在需要时显示） -->
           <div v-if="winForm.selectedFan && getFuOptions().length > 0" class="score-section">
             <label>
@@ -1294,7 +1409,7 @@ const initializePlayerLogoType = (playerId: string) => {
               </select>
             </label>
           </div>
-          
+
           <!-- 分数显示 -->
           <div v-if="winForm.scoreData" class="score-display">
             <div class="score-result">
@@ -1357,7 +1472,8 @@ const initializePlayerLogoType = (playerId: string) => {
         </div>
         <div class="modal-footer">
           <button class="ghost" @click="showWinModal = false">取消</button>
-          <button class="primary" @click="saveWin" :disabled="!winForm.selectedFan || (getFuOptions().length > 0 && !winForm.selectedFu) || (scoreType === 'rongHe' && !winForm.scoreObject)">保存</button>
+          <button class="primary" @click="saveWin"
+            :disabled="!winForm.selectedFan || (getFuOptions().length > 0 && !winForm.selectedFu) || (scoreType === 'rongHe' && !winForm.scoreObject)">保存</button>
         </div>
       </div>
     </div>
@@ -1715,6 +1831,7 @@ button.primary:disabled {
     opacity: 0;
     transform: translateX(-50%) translateY(-20px) scale(0.9);
   }
+
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0) scale(1);
@@ -1722,7 +1839,8 @@ button.primary:disabled {
 }
 
 /* Meld and Tenpai Styles */
-.meld-list, .tenpai-preview {
+.meld-list,
+.tenpai-preview {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1741,44 +1859,14 @@ button.primary:disabled {
 .meld-preview {
   display: flex;
   gap: 4px;
-  align-items: flex-end;
-}
-
-.meld-tile {
-  width: 32px;
-  height: 40px;
-  object-fit: contain;
-}
-
-.meld-tile.horizontal {
-  transform: rotate(-90deg);
-  width: 40px;
-  height: 32px;
-}
-
-.meld-tile.doublehorizontal {
-  transform: rotate(-90deg);
-  width: 40px;
-  /* height: 32px; */
-  object-fit: contain;
-}
-
-.meld-tile.backend {
-  transform: rotate(180deg);
-  width: 32px;
-  height: 40px;
-  object-fit: contain;
-}
-
-.horizontal-stack-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   align-items: center;
 }
 
-.meld-preview span {
-  display: inline-block;
+.meld-image {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .tenpai-status {
@@ -1922,14 +2010,16 @@ button.primary:disabled {
   border-top: 1px solid #e5e7eb;
 }
 
-.meld-config-list, .tenpai-config-list {
+.meld-config-list,
+.tenpai-config-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: 12px;
 }
 
-.meld-config-item, .tenpai-config-item {
+.meld-config-item,
+.tenpai-config-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1938,7 +2028,9 @@ button.primary:disabled {
   border-radius: 8px;
 }
 
-.tile-select, .orientation-select, .status-select {
+.tile-select,
+.orientation-select,
+.status-select {
   flex: 1;
   min-width: 120px;
 }
@@ -1973,6 +2065,7 @@ button.primary:disabled {
   height: 40px;
   object-fit: contain;
 }
+
 .checkbox-label {
   flex-direction: row !important;
   align-items: center;
@@ -1985,18 +2078,23 @@ button.primary:disabled {
 }
 
 /* Meld Form Styles */
-.meld-type-section, .source-player-section, .tile-selection-section, .selected-tiles-preview {
+.meld-type-section,
+.source-player-section,
+.tile-selection-section,
+.selected-tiles-preview {
   margin-bottom: 20px;
 }
 
-.meld-type-buttons, .source-player-buttons {
+.meld-type-buttons,
+.source-player-buttons {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 8px;
 }
 
-.meld-type-btn, .source-player-btn {
+.meld-type-btn,
+.source-player-btn {
   padding: 8px 16px;
   border: 2px solid #e5e7eb;
   border-radius: 8px;
@@ -2006,11 +2104,13 @@ button.primary:disabled {
   font-size: 14px;
 }
 
-.meld-type-btn:hover, .source-player-btn:hover {
+.meld-type-btn:hover,
+.source-player-btn:hover {
   border-color: #3b82f6;
 }
 
-.meld-type-btn.active, .source-player-btn.active {
+.meld-type-btn.active,
+.source-player-btn.active {
   border-color: #3b82f6;
   background: #3b82f6;
   color: white;
@@ -2049,6 +2149,12 @@ button.primary:disabled {
 .tile-option.selected {
   border-color: #3b82f6;
   background: #dbeafe;
+}
+
+.tile-option.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .tile-image {
@@ -2246,21 +2352,21 @@ button.primary:disabled {
   .grid.two {
     grid-template-columns: 1fr;
   }
-  
+
   .modal-content {
     width: 95%;
     margin: 20px;
   }
-  
-  .meld-config-item, .tenpai-config-item {
+
+  .meld-config-item,
+  .tenpai-config-item {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .score-result {
     flex-direction: column;
     align-items: flex-start;
   }
 }
 </style>
-

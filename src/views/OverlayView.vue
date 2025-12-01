@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
-import type { SeatWind } from '../types/match'
+import type { SeatWind, Meld } from '../types/match'
+import { Mahgen } from 'mahgen'
 
 // 设置窗口标题
 onMounted(() => {
@@ -53,15 +54,20 @@ watch(
   { deep: true }
 )
 
-const resourceModules = import.meta.glob('../Resources/*.png', {
+// 从 res 目录加载资源（仅使用无符号文件，直接使用 mahgen 格式）
+const resourceModules = import.meta.glob('../../res/*.png', {
   eager: true,
   import: 'default',
 }) as Record<string, string>
+
 const tileMap: Record<string, string> = {}
 Object.entries(resourceModules).forEach(([path, src]) => {
-  const key = path.split('/').pop()?.replace('.png', '')
-  if (key) {
-    tileMap[key.toLowerCase()] = src
+  const code = path.split('/').pop()?.replace('.png', '')
+  if (code) {
+    // 只使用无符号文件（不包含 _ 或 =），直接使用 mahgen 格式
+    if (!code.includes('_') && !code.includes('=') && code !== 'space') {
+      tileMap[code.toLowerCase()] = src
+    }
   }
 })
 
@@ -111,6 +117,46 @@ const formatScore = (score: number) => {
   return num.toLocaleString()
 }
 
+// 生成副露图片的 base64
+const meldImageCache = ref<Record<string, string>>({})
+
+const getMeldImage = async (meld: Meld): Promise<string> => {
+  const cacheKey = `${meld.id}-${meld.seq}`
+  
+  if (meldImageCache.value[cacheKey]) {
+    return meldImageCache.value[cacheKey]
+  }
+  
+  try {
+    const base64 = await Mahgen.render(meld.seq, false)
+    meldImageCache.value[cacheKey] = base64
+    return base64
+  } catch (error) {
+    console.error('Failed to render meld:', error)
+    return ''
+  }
+}
+
+// 为每个副露生成图片
+const meldImages = ref<Record<string, string>>({})
+
+watch(
+  () => matchState.value.players,
+  async (players) => {
+    for (const player of players) {
+      if (player.melds) {
+        for (const meld of player.melds) {
+          const key = `${player.id}-${meld.id}`
+          if (!meldImages.value[key]) {
+            meldImages.value[key] = await getMeldImage(meld)
+          }
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true }
+)
+
 // 获取分数变化动画的位置样式
 const getScoreChangeStyle = (playerId: string) => {
   const playerIndex = matchState.value.players.findIndex(p => p.id === playerId)
@@ -130,7 +176,7 @@ const getScoreChangeStyle = (playerId: string) => {
 </script>
 
 <template>
-  <div class="overlay-root">
+  <div class="overlay-root window-border">
     <section class="match-card">
       <div class="match-logo" v-if="matchState.matchLogoUrl">
         <img :src="matchState.matchLogoUrl" alt="match logo" />
@@ -168,7 +214,7 @@ const getScoreChangeStyle = (playerId: string) => {
               <img
                 v-for="(tile, index) in matchState.treasureTile"
                 :key="index"
-                :src="tileMap[tile.replace('.png', '').toLowerCase()] || tileMap.questionmark"
+                :src="tileMap[tile.replace('.png', '').toLowerCase()] || ''"
                 :alt="tile"
                 class="treasure-tile-img"
               />
@@ -192,7 +238,7 @@ const getScoreChangeStyle = (playerId: string) => {
             <img
               v-for="tile in row.tiles"
               :key="tile.code"
-              :src="tile.src || tileMap.questionmark"
+              :src="tile.src || ''"
               class="tile"
               :alt="tile.code"
             />
@@ -246,33 +292,14 @@ const getScoreChangeStyle = (playerId: string) => {
           <div class="content">
        <!-- Melds Display -->
        <div v-if="player.melds?.length" class="player-melds">
-              
               <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" class="meld-group">
-                    <span v-for="(tile, tileIndex) in meld.tiles" :key="`${meld.id}-${tile.code}-${tileIndex}`">
-                      <template v-if="tile.orientation === 'horizontal' || tile.orientation === 'doublehorizontal'">
-                        <div class="horizontal-stack-preview">
-                          <img 
-                            :src="tileMap[tile.code.toLowerCase()]"
-                            :alt="tile.code"
-                            :class="['meld-tile-display', tile.orientation]"
-                          />
-                          <img 
-                            v-if="tile.orientation === 'doublehorizontal'" 
-                            :src="tileMap[tile.code.toLowerCase()]" 
-                            :alt="tile.code" 
-                            class="meld-tile-display doublehorizontal" 
-                          />
-                        </div>
-                      </template>
-                      <template v-else>
-                        <img 
-                          :src="tileMap[tile.code.toLowerCase()]"
-                          :alt="tile.code"
-                          :class="['meld-tile-display', tile.orientation]"
-                        />
-                      </template>
-                    </span>
-                </div>
+                <img 
+                  v-if="meldImages[`${player.id}-${meld.id}`]"
+                  :src="meldImages[`${player.id}-${meld.id}`]"
+                  :alt="`meld-${meld.id}`"
+                  class="meld-image"
+                />
+              </div>
             </div>
             <div class="score-header">
               <div class="score-header-left" :class="{ highlight: index+1 === Number(matchState.currentRound) }">
@@ -291,13 +318,13 @@ const getScoreChangeStyle = (playerId: string) => {
               </div>
             </div>
             <div class="team-name-container" v-if="!player.tenpai">
-              <p class="team-name">{{ player.teamName }}</p>
+              <p class="team-name" :style="{ color: player.badgeColor }">{{ player.teamName }}</p>
             </div>
             <!-- Tenpai Display -->
             <div v-if="player.tenpai" class="player-tenpai" :style="{ background: player.tenpai.status === 'riichi' ? 'rgba(0, 255, 0, 0.8)' : 'rgba(0, 0, 255, 0.8)' }">
               <div class="tenpai-tiles-display">
                 <div v-for="tile in player.tenpai.tiles" :key="tile.code" class="tenpai-tile-display" :class="{ 'has-yaku': tile.status === 'yaku', 'no-yaku': tile.status === 'noyaku' }">
-                  <img :src="tileMap[tile.code.toLowerCase()]" :alt="tile.code" class="tenpai-tile-img" />
+                  <img :src="tileMap[tile.code.toLowerCase()] || ''" :alt="tile.code" class="tenpai-tile-img" />
                   <span v-if="tile.count" class="tile-count-display">{{ tile.count }}</span>
                 </div>
               </div>
@@ -313,7 +340,7 @@ const getScoreChangeStyle = (playerId: string) => {
 .overlay-root {
   width: 100%;
   height: 100vh;
-  padding: 32px;
+  padding: 32px 32px 0 32px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -456,6 +483,7 @@ const getScoreChangeStyle = (playerId: string) => {
   max-height: 80px;
   object-fit: contain;
   filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
+  -webkit-app-region: drag;
 }
 
 .match-info {
@@ -587,6 +615,7 @@ const getScoreChangeStyle = (playerId: string) => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   position: relative;
+  margin-top: auto;
 }
 
 .score-card {
@@ -614,7 +643,7 @@ const getScoreChangeStyle = (playerId: string) => {
 }
 
 .score-header-left {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0);
   height: 100%;
   width: 5%;
 }
@@ -724,7 +753,7 @@ const getScoreChangeStyle = (playerId: string) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgb(255, 255, 255);
+  background: rgb(255, 255, 255， 0);
   margin-top: 10px;
   height: 60%;
   position: relative;
@@ -775,7 +804,6 @@ const getScoreChangeStyle = (playerId: string) => {
 .team-name {
   margin: 4px 0;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.65);
 }
 
 .score-value {
@@ -804,54 +832,22 @@ const getScoreChangeStyle = (playerId: string) => {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 2px 4px;
+  z-index: 100;
   margin-bottom: 4px;
 }
 
 .meld-group {
-  /* display: flex;
-  gap: 2px;
-  align-items: center; */
   display: flex;
   align-items: center;
-  margin-right: 10px;
+  margin-right: 6px;
+  flex-shrink: 0;
 }
 
-.meld-tile-display {
-  /* width: 16px; */
+.meld-image {
   height: 20px;
+  width: auto;
   object-fit: contain;
-}
-
-.meld-tile-display.horizontal {
-  transform: rotate(-90deg);
-  width: 20px;
-  /* height: 20px; */
-}
-
-.meld-tile-display.doublehorizontal {
-  transform: rotate(-90deg);
-  width: 20px;
-  object-fit: contain;
-  margin: -2px 0;
-  padding: 0;
   display: block;
-  vertical-align: top;
-}
-
-.horizontal-stack-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  align-items: center;
-  height: 20px;
-  justify-content: flex-end;
-  line-height: 0;
-  font-size: 0;
-}
-
-.horizontal-stack-preview img {
-  margin: -1px 0;
-  vertical-align: top;
 }
 
 .player-tenpai {
@@ -969,6 +965,20 @@ const getScoreChangeStyle = (playerId: string) => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+html, body {
+  margin: 0;
+  background: transparent;
+}
+
+.window-border {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255,255,255,0.6); /* 自定义边框颜色 */
+  border-radius: 8px; /* 可选 */
+  pointer-events: none; /* 不阻挡点击 */
+}
+
 
 @media (max-width: 768px) {
   .score-row {

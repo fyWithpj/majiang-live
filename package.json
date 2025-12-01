@@ -42,6 +42,7 @@
     "vue-tsc": "^2.0.6"
   },
   "dependencies": {
+    "mahgen": "^1.0.0",
     "vue-router": "^4.3.0"
   }
 }

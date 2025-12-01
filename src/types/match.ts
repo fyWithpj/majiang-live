@@ -5,16 +5,9 @@ export type TileStatus = 'yaku' | 'noyaku'
 export type MeldType = 'chi' | 'pon' | 'minkan' | 'kakan' | 'ankan'
 export type SourcePlayer = 'kamicha' | 'toimen' | 'shimocha'
 
-export interface MeldTile {
-  code: string
-  orientation: TileOrientation
-}
-
 export interface Meld {
   id: string
-  type: MeldType
-  tiles: MeldTile[]
-  sourcePlayer?: SourcePlayer // Only for chi, pon, minkan, kakan
+  seq: string // mahgen 序列字符串，如 "_1m2m3m", "0z5p5p0z" 等
 }
 
 export interface TenpaiTile {
@@ -71,7 +64,7 @@ export const defaultMatchState: MatchState = {
   "matchNumber": 0,
   "fieldSupply": "200",
   "treasureTile": [
-      "p5.png"
+      "5p.png"
   ],
   "matchName": "团队联赛",
   "matchLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
@@ -109,60 +102,19 @@ export const defaultMatchState: MatchState = {
           "melds": [
               {
                   "id": "m1",
-                  "type": "chi",
-                  "tiles": [
-                      {
-                          "code": "m1",
-                          "orientation": "horizontal"
-                      },
-                      {
-                          "code": "m2",
-                          "orientation": "vertical"
-                      },
-                      {
-                          "code": "m3",
-                          "orientation": "vertical"
-                      }
-                  ],
-                  "sourcePlayer": "kamicha"
+                  "seq": "_1m2m3m"
               },
               {
                   "id": "m2",
-                  "type": "pon",
-                  "tiles": [
-                      {
-                          "code": "m4",
-                          "orientation": "horizontal"
-                      },
-                      {
-                          "code": "m4",
-                          "orientation": "vertical"
-                      },
-                      {
-                          "code": "m4",
-                          "orientation": "vertical"
-                      }
-                  ],
-                  "sourcePlayer": "toimen"
+                  "seq": "_4m4m4m"
               },
               {
                   "id": "1764135666842",
-                  "type": "kakan",
-                  "tiles": [
-                      {
-                          "code": "p5",
-                          "orientation": "vertical"
-                      },
-                      {
-                          "code": "p5",
-                          "orientation": "doublehorizontal"
-                      },
-                      {
-                          "code": "p5",
-                          "orientation": "vertical"
-                      }
-                  ],
-                  "sourcePlayer": "toimen"
+                  "seq": "0p^5p5p"
+              },
+              {
+                  "id": "1764135666843",
+                  "seq": "0z1p1p0z"
               }
           ],
           "tenpai": {
@@ -170,7 +122,7 @@ export const defaultMatchState: MatchState = {
               "isFuriten": false,
               "tiles": [
                   {
-                      "code": "m1",
+                      "code": "1m",
                       "status": "yaku",
                       "count": 1
                   }

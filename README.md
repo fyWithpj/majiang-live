@@ -99,6 +99,9 @@ npm run build
 ### 路由管理
 - **[Vue Router](https://router.vuejs.org/)** `^4.3.0` - Vue.js 官方路由管理器
 
+### 麻将相关
+- **[Mahgen](https://github.com/eric03742/mahgen)** `^1.0.0` - 麻将牌图像生成库
+
 ## 🙏 致谢
 
 本项目基于以下优秀的开源项目：
@@ -109,6 +112,7 @@ npm run build
 - [Vite](https://github.com/vitejs/vite) - 下一代前端构建工具
 - [TypeScript](https://github.com/microsoft/TypeScript) - JavaScript 超集
 - [Vue Router](https://github.com/vuejs/router) - Vue.js 路由管理
+- [Mahgen](https://github.com/eric03742/mahgen) - 麻将牌图像生成库
 
 感谢所有开源贡献者的辛勤付出！
 

@@ -86,6 +86,7 @@ async function createWindows() {
     height: 800,
     webPreferences: {
       preload,
+      webSecurity: false, // 允许 blob URL 用于 mahgen Worker
     },
   })
 
@@ -97,6 +98,7 @@ async function createWindows() {
     resizable: true,
     webPreferences: {
       preload,
+      webSecurity: false, // 允许 blob URL 用于 mahgen Worker
     },
   })
 
