@@ -137,6 +137,12 @@ const getMeldImage = async (meld: Meld): Promise<string> => {
   }
 }
 
+// 判断是否是加杠（kakan）
+// 加杠的特征：序列中包含 'v' 前缀（加杠特有的横置标记）
+const isKakan = (meld: Meld): boolean => {
+  return meld.seq.includes('v')||meld.seq.includes('^')
+}
+
 // 为每个副露生成图片
 const meldImages = ref<Record<string, string>>({})
 
@@ -176,18 +182,20 @@ const getScoreChangeStyle = (playerId: string) => {
 </script>
 
 <template>
-  <div class="overlay-root window-border">
-    <section class="match-card">
+  <div class="overlay-root">
+    <section class="match-card round-card">
       <div class="match-logo" v-if="matchState.matchLogoUrl">
         <img :src="matchState.matchLogoUrl" alt="match logo" />
       </div>
       <div class="match-info">
         <div class="match-name">{{ matchState.matchName }}</div>
         <div class="match-subtitle">{{ matchState.subtitle }}</div>
+        <div class="match-subtitleinfo">{{ matchState.subtitle2 }}</div>
+        <div class="match-subtitleinfo">{{ matchState.subtitle3 }}</div>
       </div>
       <div class="match-number">
         <div class="match-number-item" v-if="matchState.matchNumber">
-          {{ matchState.matchNumber }}
+          第{{ matchState.matchNumber }}半庄
         </div>
       </div>
     </section>
@@ -201,12 +209,12 @@ const getScoreChangeStyle = (playerId: string) => {
           </div>
           <div class="round-meta">
             <div class="meta-item">
-              <img src="../img/本场.png" alt="本场" />
-              <strong>{{ matchState.honba }}</strong>
-            </div>
-            <div class="meta-item">
               <img src="../img/场供.png" alt="场供" />
               <strong>{{ matchState.riichiSticks }}</strong>
+            </div>
+            <div class="meta-item">
+              <img src="../img/本场.png" alt="本场" />
+              <strong>{{ matchState.honba }}</strong>
             </div>
           </div>
           <div class="round-meta treasure-tiles">
@@ -292,12 +300,19 @@ const getScoreChangeStyle = (playerId: string) => {
           <div class="content">
        <!-- Melds Display -->
        <div v-if="player.melds?.length" class="player-melds">
-              <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" class="meld-group">
+              <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" :class="{'meld-group': player.melds.length<3, 'meld-group3': player.melds.length>=3}">
                 <img 
                   v-if="meldImages[`${player.id}-${meld.id}`]"
                   :src="meldImages[`${player.id}-${meld.id}`]"
                   :alt="`meld-${meld.id}`"
-                  class="meld-image"
+                  :class="{ 
+                    'meld-image': player.melds.length<3 && !isKakan(meld), 
+                    'meld-image-kakan': isKakan(meld) && player.melds.length<3,
+                    'meld-image3': player.melds.length===3 && !isKakan(meld),
+                    'meld-image3-kakan': isKakan(meld) && player.melds.length===3,
+                    'meld-image4': player.melds.length===4 && !isKakan(meld),
+                    'meld-image4-kakan': isKakan(meld) && player.melds.length===4
+                  }"
                 />
               </div>
             </div>
@@ -306,12 +321,12 @@ const getScoreChangeStyle = (playerId: string) => {
 
               </div>
               <div class="score-header-content">
-              <div class="badge" :style="{ background: player.badgeColor }">
+              <div class="badge" :style="{ color: player.badgeColor }">
                 {{ player.badgeText }}
               </div>
               <!-- <span class="seat-pill">{{ seatLabel[player.wind] }}</span> -->
               <div class="score-info">
-                <div class="video-gap"><p v-if="player.ptPoint">PT: {{ player.ptPoint }}</p></div>
+                <!-- <div class="video-gap"><p v-if="player.ptPoint">PT: {{ player.ptPoint }}</p></div> -->
                 <p class="score-value">{{ formatScore(player.score) }}</p>
               </div>
                 
@@ -340,7 +355,7 @@ const getScoreChangeStyle = (playerId: string) => {
 .overlay-root {
   width: 100%;
   height: 100vh;
-  padding: 32px 32px 0 32px;
+  /* padding: 32px 32px 0 32px; */
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -348,6 +363,7 @@ const getScoreChangeStyle = (playerId: string) => {
   font-family: '微软雅黑', 'Microsoft YaHei', 'Inter', sans-serif;
   pointer-events: none;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .top-bar {
@@ -377,8 +393,9 @@ const getScoreChangeStyle = (playerId: string) => {
   display: flex;
   gap: 16px;
   align-items: center;
-  /* 白色边框 */
-  border: 1px solid #ffffff;
+  /* 白色边框，加阴影 */
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 1);
   border-radius: 12px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.06);
@@ -396,6 +413,9 @@ const getScoreChangeStyle = (playerId: string) => {
 .round-label {
   margin: 0;
   font-size: 16px;
+  /* 文字加粗，加阴影 */
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 1);
   color: rgba(255, 255, 255, 1);
 }
 
@@ -471,8 +491,8 @@ const getScoreChangeStyle = (playerId: string) => {
 
 .match-card {
   position: fixed;
-  top: 32px;
-  right: 32px;
+  /* top: 32px; */
+  right: 0px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -482,6 +502,8 @@ const getScoreChangeStyle = (playerId: string) => {
 .match-logo img {
   max-height: 80px;
   object-fit: contain;
+  /* 透明 */
+  /* opacity: 0.5; */
   filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
   -webkit-app-region: drag;
 }
@@ -498,8 +520,16 @@ const getScoreChangeStyle = (playerId: string) => {
 }
 
 .match-subtitle {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 30px;
+  color: rgba(255, 255, 255, 1);
+}
+
+.match-subtitleinfo {
+  font-size: 24px;
+  /* 给字加上白色加粗，黑色阴影 */
+  text-shadow: 0 0 10px rgba(0, 0, 0, 1);
+  font-weight: bold;
+  color: rgba(255, 255, 255, 1);
 }
 
 .match-number {
@@ -508,9 +538,12 @@ const getScoreChangeStyle = (playerId: string) => {
 }
 
 .match-number-item {
-  font-size: 50px;
+  font-size: 32px;
   font-weight: 400;
   letter-spacing: 2px;
+  /* 文字从上到下排列 */
+  writing-mode: vertical-rl;
+  text-orientation: upright;
 }
 
 .tenpai-panel {
@@ -638,12 +671,13 @@ const getScoreChangeStyle = (playerId: string) => {
 .score-header-content {
   display: flex;
   flex-direction: column;
+  background: rgba(255, 255, 255, 1);
   width: 100%;
   height: 100%;
 }
 
 .score-header-left {
-  background: rgba(255, 255, 255, 0);
+  background: rgba(255, 255, 255, 1);
   height: 100%;
   width: 5%;
 }
@@ -659,7 +693,8 @@ const getScoreChangeStyle = (playerId: string) => {
   padding: 4px 10px;
   border-radius: 999px;
   color: #fff;
-  font-size: 13px;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .card-body {
@@ -703,7 +738,7 @@ const getScoreChangeStyle = (playerId: string) => {
   justify-content: left;
   color: #fff;
   font-weight: bold;
-  font-size: 12px;
+  font-size: 20px;
   height: 100%;
 }
 
@@ -714,7 +749,7 @@ const getScoreChangeStyle = (playerId: string) => {
   justify-content: right;
   color: #fff;
   font-weight: bold;
-  font-size: 12px;
+  font-size: 20px;
   height: 100%;
 }
 
@@ -778,7 +813,7 @@ const getScoreChangeStyle = (playerId: string) => {
 
 .score-info .score-value {
   margin: 2px 0 0 0;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 800;
 }
 
@@ -828,7 +863,7 @@ const getScoreChangeStyle = (playerId: string) => {
   height: 24px;
   display: flex;
   gap: 4px;
-  align-items: center;
+  align-items: baseline;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 2px 4px;
@@ -843,8 +878,50 @@ const getScoreChangeStyle = (playerId: string) => {
   flex-shrink: 0;
 }
 
+.meld-group3 {
+  display: flex;
+  align-items: center;
+  margin-right: 0px;
+  flex-shrink: 0;
+}
+
 .meld-image {
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.meld-image-kakan {
+  height: 42px !important; /* 30px * 1.4 */
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.meld-image3 {
   height: 20px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.meld-image3-kakan {
+  height: 28px !important; /* 20px * 1.4 */
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.meld-image4 {
+  height: 15px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.meld-image4-kakan {
+  height: 21px !important; /* 15px * 1.4 */
   width: auto;
   object-fit: contain;
   display: block;
@@ -968,7 +1045,11 @@ const getScoreChangeStyle = (playerId: string) => {
 
 html, body {
   margin: 0;
+  padding: 0;
   background: transparent;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
 }
 
 .window-border {

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
 import type { MatchState } from '../../src/types/match'
 import { defaultMatchState } from '../../src/types/match'
 
@@ -45,7 +46,86 @@ let controlWindow: BrowserWindow | null = null
 const preload = path.join(__dirname, '../preload/index.mjs')
 const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
+// 获取配置文件路径
+// 开发环境：使用项目根目录的 config 文件夹
+// 生产环境：使用用户数据目录的 config 文件夹（可写）
+function getConfigPath(): string {
+  if (VITE_DEV_SERVER_URL) {
+    // 开发环境：项目根目录的 config 文件夹
+    return path.join(process.env.APP_ROOT || __dirname, 'config/match.json')
+  } else {
+    // 生产环境：使用 userData 目录（始终可写）
+    return path.join(app.getPath('userData'), 'config/match.json')
+  }
+}
+
+const configPath = getConfigPath()
+
 let matchState: MatchState = { ...defaultMatchState }
+
+// 从 JSON 文件加载配置
+function loadMatchStateFromFile(): MatchState {
+  try {
+    // 确保 config 目录存在
+    const configDir = path.dirname(configPath)
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true })
+    }
+
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf-8')
+      try {
+        const loadedState = JSON.parse(content) as MatchState
+        console.log('[match] 从 JSON 文件加载配置成功:', configPath)
+        return loadedState
+      } catch (parseError) {
+        console.error('[match] 解析 JSON 文件失败:', parseError)
+      }
+    } else {
+      // 如果配置文件不存在，尝试从默认位置（开发环境或 resources）复制
+      const defaultConfigPaths = [
+        path.join(process.env.APP_ROOT || __dirname, 'config/match.json'), // 开发环境
+        path.join(process.resourcesPath, 'config/match.json'), // 生产环境 resources
+      ]
+      
+      for (const defaultConfigPath of defaultConfigPaths) {
+        if (fs.existsSync(defaultConfigPath) && defaultConfigPath !== configPath) {
+          try {
+            fs.copyFileSync(defaultConfigPath, configPath)
+            const content = fs.readFileSync(configPath, 'utf-8')
+            const loadedState = JSON.parse(content) as MatchState
+            console.log('[match] 从默认配置文件复制并加载成功:', configPath)
+            return loadedState
+          } catch (error) {
+            console.error('[match] 复制默认配置文件失败:', error)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[match] 读取配置文件失败:', error)
+  }
+  console.log('[match] 使用默认配置')
+  return { ...defaultMatchState }
+}
+
+// 保存配置到 JSON 文件
+function saveMatchStateToFile(state: MatchState) {
+  try {
+    // 确保 config 目录存在
+    const configDir = path.dirname(configPath)
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true })
+    }
+
+    // 将状态转换为格式化的 JSON 字符串，使用 2 空格缩进
+    const jsonStr = JSON.stringify(state, null, 2)
+    fs.writeFileSync(configPath, jsonStr, 'utf-8')
+    console.log('[match] 配置已保存到 JSON 文件:', configPath)
+  } catch (error) {
+    console.error('[match] 保存配置到 JSON 文件失败:', error)
+  }
+}
 
 const loadRoute = (window: BrowserWindow, route: string) => {
   if (VITE_DEV_SERVER_URL) {
@@ -67,6 +147,8 @@ ipcMain.handle('match:get-state', () => matchState)
 ipcMain.handle('match:update-state', (_event, payload: MatchState) => {
   matchState = { ...payload }
   broadcastState()
+  // 自动保存到文件
+  saveMatchStateToFile(matchState)
 })
 
 async function createWindows() {
@@ -115,8 +197,16 @@ async function createWindows() {
     return { action: 'deny' }
   })
 
+  overlayWindow.on('close', () => {
+    // 在悬浮窗关闭前保存配置
+    saveMatchStateToFile(matchState)
+  })
   overlayWindow.on('closed', () => {
     overlayWindow = null
+  })
+  controlWindow.on('close', () => {
+    // 在控制窗口关闭前保存配置
+    saveMatchStateToFile(matchState)
   })
   controlWindow.on('closed', () => {
     controlWindow = null
@@ -135,12 +225,27 @@ async function createWindows() {
   controlWindow.webContents.on('did-finish-load', broadcastState)
 }
 
+// 应用启动时加载配置
+matchState = loadMatchStateFromFile()
+
 app.whenReady().then(createWindows)
 
 app.on('window-all-closed', () => {
+  // 在所有窗口关闭时保存配置
+  saveMatchStateToFile(matchState)
   overlayWindow = null
   controlWindow = null
   if (process.platform !== 'darwin') app.quit()
+})
+
+// 应用关闭前保存配置
+app.on('before-quit', (event) => {
+  saveMatchStateToFile(matchState)
+})
+
+// 使用 will-quit 作为备用，确保保存
+app.on('will-quit', (event) => {
+  saveMatchStateToFile(matchState)
 })
 
 app.on('second-instance', () => {

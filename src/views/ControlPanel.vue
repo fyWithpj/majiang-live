@@ -2,6 +2,7 @@
 import { reactive, ref, watch, onMounted } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
 import { majiangScoreTable } from '../data/majiangScoreTable'
+import { majiangScoreTablekili } from '../data/majiangScoreTablekili'
 import type { MatchState, PlayerBoard, TenpaiOption, SeatWind, Meld, PlayerTenpai, TenpaiTile, TenpaiStatus, TileStatus, MeldType, SourcePlayer } from '../types/match'
 import { Mahgen } from 'mahgen'
 
@@ -91,6 +92,7 @@ const treasureTileOptions = Object.entries(resourceModules)
   })
 
 const form = reactive<MatchState>({
+  isKili: true,
   sessionLabel: '',
   currentRound: '',
   matchNumber: 1,
@@ -99,6 +101,8 @@ const form = reactive<MatchState>({
   matchName: '',
   matchLogoUrl: '',
   subtitle: '',
+  subtitle2: '',
+  subtitle3: '',
   honba: 0,
   riichiSticks: 0,
   players: [],
@@ -111,8 +115,33 @@ const showMeldModal = ref(false)
 const showTenpaiModal = ref(false)
 const showWinModal = ref(false)
 const currentPlayerId = ref<string>('')
-const scoreTable = ref<any>(majiangScoreTable.dealerScoreTable)
+
+// 根据 isKili 选择计分表
+const getScoreTable = () => {
+  return form.isKili ? majiangScoreTablekili : majiangScoreTable
+}
+
+const scoreTable = ref<any>(getScoreTable().dealerScoreTable)
 const scoreType = ref<'ziMo' | 'rongHe'>('ziMo')
+
+// 监听 isKili 变化，更新计分表
+watch(() => form.isKili, () => {
+  const currentScoreTable = getScoreTable()
+  // 如果当前有打开的赢牌弹窗，更新计分表
+  if (showWinModal.value) {
+    if (currentRoundNum.value == form.players.findIndex(p => p.id === currentPlayerId.value)) {
+      scoreTable.value = currentScoreTable.dealerScoreTable
+    } else {
+      scoreTable.value = currentScoreTable.playerScoreTable
+    }
+    winForm.scoreTable = scoreTable.value
+    // 清空已选择的番数和符数，因为计分表已改变
+    winForm.selectedFan = ''
+    winForm.selectedFu = ''
+    winForm.scoreData = null
+  }
+})
+
 const winForm = reactive({
   scoreTable: scoreTable.value,
   scoreType: scoreType.value,
@@ -154,10 +183,10 @@ const generateMeldSeq = (type: MeldType, selectedTiles: string[], sourcePlayer: 
   } else if (type === 'ankan') {
     // 暗杠：0z + 牌 + 牌 + 0z
     //判断牌数是否带5或0，如果带了，第一张为0，第二张为5
-    if (selectedTiles[0].includes('5') || selectedTiles[0].includes('0')) {
+      const match = selectedTiles[0].match(/^\d([mps])$/);
+    if (match && (selectedTiles[0].includes('5') || selectedTiles[0].includes('0'))) {
       // 获取实际是 m/p/s 
       // 修正 Object is possibly 'null'
-      const match = selectedTiles[0].match(/^\d([mps])$/);
       const tileType = match ? match[1] : '';
 
       return `0z0${tileType}5${tileType}0z`
@@ -190,7 +219,7 @@ const generateMeldSeq = (type: MeldType, selectedTiles: string[], sourcePlayer: 
         continue;
       }
 
-      if (is5) {
+      if (match && is5) {
         // 🔹 red 5 / dora 5
         if (isSource) {
           seq += isKakan ? `v0${tileType}` : `^5${tileType}`;
@@ -235,7 +264,7 @@ const generateMeldSeq = (type: MeldType, selectedTiles: string[], sourcePlayer: 
           seq += `0${tileType}`
           need0Flag = false;
         } else {
-          if(selectedTiles[0].includes('5')||selectedTiles[0].includes('0')){
+          if(match && (selectedTiles[0].includes('5')||selectedTiles[0].includes('0'))){
             seq += `5${tileType}`;
           } else {
             seq += selectedTiles[0];
@@ -249,9 +278,9 @@ const generateMeldSeq = (type: MeldType, selectedTiles: string[], sourcePlayer: 
     const sourcePlayerNumber = sourcePlayer === 'kamicha' ? 0 : sourcePlayer === 'toimen' ? 1 : 2
     let seq = ''
     //判断牌数是否带5或0，如果带了，第一张为0，第二张为5
-    if (selectedTiles[0].includes('5') || selectedTiles[0].includes('0')) {
-      let need0Flag = selectedTiles[0].includes('5');
       const match = selectedTiles[0].match(/^\d([mps])$/);
+    if (match && (selectedTiles[0].includes('5') || selectedTiles[0].includes('0'))) {
+      let need0Flag = selectedTiles[0].includes('5');
       const tileType = match ? match[1] : '';
       for (let i = 0; i < 4; i++) {
         if (i === sourcePlayerNumber) {
@@ -374,6 +403,13 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info',
 
 const clearAllData = () => {
   if (confirm('确定要清空所有数据吗？此操作不可撤销。')) {
+    // 保存需要保留的字段
+    const preservedMatchName = form.matchName
+    const preservedMatchLogoUrl = form.matchLogoUrl
+    const preservedSubtitle = form.subtitle
+    const preservedSubtitle2 = form.subtitle2
+    const preservedSubtitle3 = form.subtitle3
+
     // 重置表单数据
     Object.assign(form, {
       "sessionLabel": "东",
@@ -382,9 +418,11 @@ const clearAllData = () => {
       "fieldSupply": "",
       "treasureTile": [
       ],
-      "matchName": "",
-      "matchLogoUrl": "",
-      "subtitle": "",
+      "matchName": preservedMatchName,
+      "matchLogoUrl": preservedMatchLogoUrl,
+      "subtitle": preservedSubtitle,
+      "subtitle2": preservedSubtitle2,
+      "subtitle3": preservedSubtitle3,
       "honba": 0,
       "riichiSticks": 0,
       "players": [
@@ -611,10 +649,11 @@ const openTenpaiModal = (playerId: string, type: 'tenpai' | 'riichi' = 'tenpai')
 // Win methods
 const openWinModal = (playerId: string, playerIndex: number, type: 'ziMo' | 'rongHe' = 'ziMo') => {
   currentPlayerId.value = playerId
+  const currentScoreTable = getScoreTable()
   if (currentRoundNum.value == playerIndex) {
-    scoreTable.value = majiangScoreTable.dealerScoreTable
+    scoreTable.value = currentScoreTable.dealerScoreTable
   } else {
-    scoreTable.value = majiangScoreTable.playerScoreTable
+    scoreTable.value = currentScoreTable.playerScoreTable
   }
   scoreType.value = type
   winForm.scoreTable = scoreTable.value
@@ -1025,6 +1064,10 @@ const initializePlayerLogoType = (playerId: string) => {
           场供
           <input v-model.number="form.riichiSticks" type="number" min="0" />
         </label>
+        <label>
+          是否切上满贯
+          <input type="checkbox" v-model="form.isKili" />
+        </label>
         <label class="full">
           <div class="title-row">
             <h2 style="margin: 0;">宝牌</h2>
@@ -1060,6 +1103,14 @@ const initializePlayerLogoType = (playerId: string) => {
         <label class="full">
           比赛副标题
           <input v-model="form.subtitle" placeholder="例如：2025.11.23" />
+        </label>
+        <label class="full">
+          比赛副标题2
+          <input v-model="form.subtitle2" placeholder="例如：2025.11.23" />
+        </label>
+        <label class="full">
+          比赛副标题3
+          <input v-model="form.subtitle3" placeholder="例如：2025.11.23" />
         </label>
         <label>
           半庄数
@@ -1246,7 +1297,7 @@ const initializePlayerLogoType = (playerId: string) => {
           </div>
 
           <!-- Source Player Selection (not for ankan) -->
-          <div v-if="meldForm.type !== 'ankan'" class="source-player-section">
+          <div v-if="meldForm.type !== 'ankan'&&meldForm.type !== 'chi'" class="source-player-section">
             <label>吃碰家</label>
             <div class="source-player-buttons">
               <button v-for="option in sourcePlayerOptions" :key="option.value" type="button"
@@ -1266,7 +1317,7 @@ const initializePlayerLogoType = (playerId: string) => {
                   需要选择3张牌
                 </template>
                 <template
-                  v-else-if="(meldForm.type === 'pon' || meldForm.type === 'kakan') && meldForm.selectedTiles.length > 0 && meldForm.selectedTiles[0] && meldForm.selectedTiles[0].includes('5')">
+                  v-else-if="(meldForm.type === 'pon' || meldForm.type === 'kakan') && meldForm.selectedTiles.length > 0 && meldForm.selectedTiles[0] && meldForm.selectedTiles[0].match(/^\d([mps])$/)  && meldForm.selectedTiles[0].includes('5')">
                   已选择第一张牌，请选择同种类的赤色牌作为第二张（可选）
                 </template>
                 <template v-else>

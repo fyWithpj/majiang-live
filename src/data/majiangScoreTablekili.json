@@ -34,14 +34,12 @@
         "30符": { "ron": 5800, "tsumo": 2000 },
         "40符": { "ron": 7700, "tsumo": 2600 },
         "50符": { "ron": 9600, "tsumo": 3200 },
-        "60符": { "ron": 11600, "tsumo": 3900 },
-        "70符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
+        "60符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
       },
       "4番": {
         "20符": { "ron": "RIM", "tsumo": 2600 },
         "25符": { "ron": 9600, "tsumo": 3200 },
-        "30符": { "ron": 11600, "tsumo": 3900 },
-        "40符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
+        "30符": { "type": "满贯", "ron": 12000, "tsumo": 4000 }
       },
       "5番": { "type": "满贯", "ron": 12000, "tsumo": 4000 },
       "6番": { "type": "跳满", "ron": 18000, "tsumo": 6000 },
@@ -89,14 +87,12 @@
         "30符": { "ron": 3900, "tsumo": { "dealer": 2000, "player": 1000 } },
         "40符": { "ron": 5200, "tsumo": { "dealer": 2600, "player": 1300 } },
         "50符": { "ron": 6400, "tsumo": { "dealer": 3200, "player": 1600 } },
-        "60符": { "ron": 7700, "tsumo": { "dealer": 3900, "player": 2000 } },
-        "70符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
+        "60符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
       },
       "4番": {
         "20符": { "ron": "RIM", "tsumo": { "dealer": 2600, "player": 1300 } },
         "25符": { "ron": 6400, "tsumo": { "dealer": 3200, "player": 1600 } },
-        "30符": { "ron": 7700, "tsumo": { "dealer": 3900, "player": 2000 } },
-        "40符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
+        "30符": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } }
       },
       "5番": { "type": "满贯", "ron": 8000, "tsumo": { "dealer": 4000, "player": 2000 } },
       "6番": { "type": "跳满", "ron": 12000, "tsumo": { "dealer": 6000, "player": 3000 } },
