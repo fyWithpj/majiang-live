@@ -839,9 +839,9 @@ const saveWin = () => {
       // 自摸时，每家付本场费
       form.players.forEach(player => {
         if (player.id === currentPlayerId.value) {
-          player.score += honbaScore * 3
+          player.score += honbaScore
         } else {
-          player.score -= honbaScore
+          player.score -= honbaScore/3
         }
       })
     } else {
