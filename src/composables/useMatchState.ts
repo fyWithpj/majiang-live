@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, nextTick } from 'vue'
 import type { MatchState } from '../types/match'
 import { defaultMatchState } from '../types/match'
 
@@ -6,6 +6,33 @@ const sharedState = ref<MatchState>({ ...defaultMatchState })
 let unsubscribe: (() => void) | null = null
 let isInitialized = false
 let mountCounter = 0
+
+// 深度更新函数，保持响应式连接
+function deepUpdate(target: any, source: any): void {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return
+  }
+  
+  for (const key in source) {
+    if (source.hasOwnProperty(key)) {
+      const sourceValue = source[key]
+      if (
+        typeof sourceValue === 'object' &&
+        sourceValue !== null &&
+        !Array.isArray(sourceValue) &&
+        target[key] &&
+        typeof target[key] === 'object' &&
+        !Array.isArray(target[key])
+      ) {
+        // 递归更新嵌套对象
+        deepUpdate(target[key], sourceValue)
+      } else {
+        // 直接更新属性，保持响应式连接
+        target[key] = sourceValue
+      }
+    }
+  }
+}
 
 export function useMatchState() {
   const loading = ref(!isInitialized)
@@ -20,7 +47,9 @@ export function useMatchState() {
 
     try {
       const state = await api.getState()
-      sharedState.value = state
+      // 使用深度更新而不是直接替换，确保响应式连接不中断
+      deepUpdate(sharedState.value, state)
+      await nextTick() // 确保Vue处理完响应式更新
       isInitialized = true
       loading.value = false
     } catch (error) {
@@ -40,8 +69,10 @@ export function useMatchState() {
 
     if (!unsubscribe && window.matchAPI) {
       const api = window.matchAPI
-      unsubscribe = api.onStateChange((state: MatchState) => {
-        sharedState.value = state
+      unsubscribe = api.onStateChange(async (state: MatchState) => {
+        // 使用深度更新和nextTick确保响应式更新
+        deepUpdate(sharedState.value, state)
+        await nextTick()
       })
     }
   })

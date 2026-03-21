@@ -1,17 +1,122 @@
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted } from 'vue'
+import { reactive, ref, watch, onMounted, nextTick } from 'vue'
 import { useMatchState } from '../composables/useMatchState'
 import { majiangScoreTable } from '../data/majiangScoreTable'
 import { majiangScoreTablekili } from '../data/majiangScoreTablekili'
 import type { MatchState, PlayerBoard, TenpaiOption, SeatWind, Meld, PlayerTenpai, TenpaiTile, TenpaiStatus, TileStatus, MeldType, SourcePlayer } from '../types/match'
 import { Mahgen } from 'mahgen'
 
-// 设置窗口标题
-onMounted(() => {
+const { matchState, loading, updateState } = useMatchState()
+
+// 从 matchState 初始化 form（一次性初始化，不使用 watch）
+const initializeFormFromMatchState = async () => {
+  if (!loading.value && matchState.value) {
+    // 深拷贝 matchState 的值到 form，使用深度更新保持响应式连接
+    const stateData = JSON.parse(JSON.stringify(matchState.value)) as MatchState
+    // 使用深度更新而不是直接替换，保持响应式连接
+    Object.keys(stateData).forEach((key) => {
+      const typedKey = key as keyof MatchState
+      const value = stateData[typedKey]
+      if (Array.isArray(value)) {
+        // players 需转为 reactive，否则 v-model 无法输入；空数组时使用默认 4 人
+        if (typedKey === 'players') {
+          (form as any)[typedKey] = value.length > 0
+            ? value.map((item: any) => reactive(item))
+            : getDefaultPlayers()
+        } else {
+          (form as any)[typedKey] = value
+        }
+      } else if (typeof value === 'object' && value !== null) {
+        const formValue = (form as any)[typedKey]
+        if (!formValue || typeof formValue !== 'object') {
+          (form as any)[typedKey] = {}
+        }
+        Object.assign((form as any)[typedKey], value)
+      } else {
+        (form as any)[typedKey] = value
+      }
+    })
+    // 初始化 currentRoundNum
+    if (form.currentRound) {
+      const roundNum = Number(form.currentRound)
+      if (!isNaN(roundNum) && roundNum > 0) {
+        currentRoundNum.value = roundNum
+      }
+    }
+    await nextTick() // 确保Vue处理完响应式更新
+  }
+}
+
+// 设置窗口标题并初始化表单
+onMounted(async () => {
   document.title = '花听直播-控制面板-madeby比尔'
+  
+  // 等待 matchState 加载完成后初始化
+  if (loading.value) {
+    // 如果还在加载，等待加载完成
+    const checkLoading = async () => {
+      if (!loading.value) {
+        await initializeFormFromMatchState()
+      } else {
+        // 如果还在加载，继续等待
+        setTimeout(checkLoading, 50)
+      }
+    }
+    checkLoading()
+  } else {
+    // 如果已经加载完成，直接初始化
+    await initializeFormFromMatchState()
+  }
 })
 
-const { matchState, updateState } = useMatchState()
+// 监听 matchState 的变化，同步到 form（仅在非提交状态下）
+let isUpdating = false
+watch(
+  () => matchState.value,
+  async (newState) => {
+    // 如果正在提交更新，不进行同步（避免循环更新）
+    if (isUpdating || submitting.value) {
+      return
+    }
+    // 延迟同步，确保更新完成
+    await nextTick()
+    if (newState) {
+      const stateData = JSON.parse(JSON.stringify(newState)) as MatchState
+      // 使用深度更新保持响应式连接
+      Object.keys(stateData).forEach((key) => {
+        const typedKey = key as keyof MatchState
+        const value = stateData[typedKey]
+        if (Array.isArray(value)) {
+          // players 需 reactive；空数组时用默认 4 人，否则 v-model 无法输入
+          if (typedKey === 'players') {
+            (form as any)[typedKey] = value.length > 0
+              ? value.map((item: any) => reactive(item))
+              : getDefaultPlayers()
+          } else {
+            (form as any)[typedKey] = value
+          }
+        } else if (typeof value === 'object' && value !== null) {
+          const formValue = (form as any)[typedKey]
+          if (!formValue || typeof formValue !== 'object') {
+            (form as any)[typedKey] = {}
+          }
+          Object.assign((form as any)[typedKey], value)
+        } else {
+          (form as any)[typedKey] = value
+        }
+      })
+      // 同步 currentRoundNum
+      if (form.currentRound) {
+        const roundNum = Number(form.currentRound)
+        if (!isNaN(roundNum) && roundNum > 0) {
+          currentRoundNum.value = roundNum
+        }
+      }
+      await nextTick()
+    }
+  },
+  { deep: true }
+)
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error' | 'info' | ''>('')
 const submitting = ref(false)
@@ -61,6 +166,17 @@ const tileNameMap: Record<string, string> = {
   '1z': '东', '2z': '南', '3z': '西', '4z': '北',
   '5z': '白', '6z': '发', '7z': '中',
 }
+// res 格式的牌名映射（1m, 2p, 1z 等）
+const withoutZeroMap: Record<string, string> = {
+  '1m': '一万', '2m': '二万', '3m': '三万', '4m': '四万', '5m': '五万',
+  '6m': '六万', '7m': '七万', '8m': '八万', '9m': '九万',
+  '1p': '一筒', '2p': '二筒', '3p': '三筒', '4p': '四筒', '5p': '五筒',
+  '6p': '六筒', '7p': '七筒', '8p': '八筒', '9p': '九筒',
+  '1s': '一索', '2s': '二索', '3s': '三索', '4s': '四索', '5s': '五索',
+  '6s': '六索', '7s': '七索', '8s': '八索', '9s': '九索',
+  '1z': '东', '2z': '南', '3z': '西', '4z': '北',
+  '5z': '白', '6z': '发', '7z': '中',
+}
 
 // 直接使用 mahgen 格式（1m, 2p, 1z 等）
 const treasureTileOptions = Object.entries(resourceModules)
@@ -90,6 +206,42 @@ const treasureTileOptions = Object.entries(resourceModules)
     // 都在 tileNameMap 中，按索引排序
     return aIndex - bIndex
   })
+// 直接使用 mahgen 格式（1m, 2p, 1z 等）
+const treasureTileOptionsWithoutZero = Object.entries(resourceModules)
+  .map(([path, src]) => {
+    const filename = path.split('/').pop() || ''
+    const code = filename.replace('.png', '')
+
+    // 必须在 tileNameMap 中存在
+    if (!withoutZeroMap[code]) {
+      return null
+    }
+
+    return {
+      label: withoutZeroMap[code],
+      value: filename,
+      code: code, // 直接使用 mahgen 格式
+      src: src,
+    }
+  })
+  .filter((opt): opt is NonNullable<typeof opt> => opt !== null) // 过滤掉 null
+  .sort((a, b) => {
+    // 按 tileNameMap 中定义的顺序排序
+    const tileOrder = Object.keys(withoutZeroMap)
+    const aIndex = tileOrder.indexOf(a.code)
+    const bIndex = tileOrder.indexOf(b.code)
+
+    // 都在 tileNameMap 中，按索引排序
+    return aIndex - bIndex
+  })
+
+// 默认 4 名选手（reactive，确保 v-model 可输入）
+const getDefaultPlayers = () => [
+  reactive({ id: 'p1', badgeText: '选手1', badgeColor: '#6dd400', playerName: '选手1', teamName: '', teamLogoUrl: '', tagline: '', score: 25000, ptPoint: '', wind: '' as PlayerBoard['wind'], highlight: false, melds: [], tenpai: null, stoppedHu: false }),
+  reactive({ id: 'p2', badgeText: '选手2', badgeColor: '#f472b6', playerName: '选手2', teamName: '', teamLogoUrl: '', tagline: '', score: 25000, ptPoint: '', wind: '' as PlayerBoard['wind'], highlight: false, melds: [], tenpai: null, stoppedHu: false }),
+  reactive({ id: 'p3', badgeText: '选手3', badgeColor: '#60a5fa', playerName: '选手3', teamName: '', teamLogoUrl: '', tagline: '', score: 25000, ptPoint: '', wind: '' as PlayerBoard['wind'], highlight: false, melds: [], tenpai: null, stoppedHu: false }),
+  reactive({ id: 'p4', badgeText: '选手4', badgeColor: '#f59e0b', playerName: '选手4', teamName: '', teamLogoUrl: '', tagline: '', score: 25000, ptPoint: '', wind: '' as PlayerBoard['wind'], highlight: false, melds: [], tenpai: null, stoppedHu: false }),
+]
 
 const form = reactive<MatchState>({
   isKili: true,
@@ -124,8 +276,8 @@ const getScoreTable = () => {
 const scoreTable = ref<any>(getScoreTable().dealerScoreTable)
 const scoreType = ref<'ziMo' | 'rongHe'>('ziMo')
 
-// 监听 isKili 变化，更新计分表
-watch(() => form.isKili, () => {
+// 处理 isKili 变化，更新计分表
+const handleIsKiliChange = () => {
   const currentScoreTable = getScoreTable()
   // 如果当前有打开的赢牌弹窗，更新计分表
   if (showWinModal.value) {
@@ -140,7 +292,7 @@ watch(() => form.isKili, () => {
     winForm.selectedFu = ''
     winForm.scoreData = null
   }
-})
+}
 
 const winForm = reactive({
   scoreTable: scoreTable.value,
@@ -352,22 +504,6 @@ watch(
 )
 
 
-watch(
-  matchState,
-  value => {
-    const state = JSON.parse(JSON.stringify(value))
-    // 兼容旧数据：如果 treasureTile 是字符串，转换为数组
-    if (typeof state.treasureTile === 'string') {
-      state.treasureTile = state.treasureTile ? [state.treasureTile] : []
-    }
-
-    Object.assign(form, state)
-    const num = Number.parseInt(value.currentRound) || 1
-    currentRoundNum.value = num > 0 ? num : 1
-  },
-  { immediate: true },
-)
-
 watch(currentRoundNum, (val) => {
   if (val > 0) {
     form.currentRound = String(val)
@@ -376,17 +512,23 @@ watch(currentRoundNum, (val) => {
 
 const submit = async () => {
   submitting.value = true
+  isUpdating = true
   try {
     // 确保局次数字已同步到字符串
     form.currentRound = String(currentRoundNum.value > 0 ? currentRoundNum.value : 1)
     console.log(JSON.parse(JSON.stringify(form)))
     await updateState(JSON.parse(JSON.stringify(form)))
+    await nextTick() // 等待状态更新完成
     showToast('已更新到展示界面', 'success')
   } catch (error) {
     console.error(error)
     showToast('更新失败，请检查控制台', 'error', 5000)
   } finally {
     submitting.value = false
+    // 延迟重置 isUpdating，确保状态同步完成
+    setTimeout(() => {
+      isUpdating = false
+    }, 100)
   }
 }
 
@@ -402,108 +544,110 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info',
 }
 
 const clearAllData = () => {
-  if (confirm('确定要清空所有数据吗？此操作不可撤销。')) {
-    // 保存需要保留的字段
+  if (
+    confirm(
+      '将重置分数、局数、本场、立直棒、宝牌、副露与听牌等场次数据；选手姓名、战队与徽章等信息将保留。确定继续？',
+    )
+  ) {
     const preservedMatchName = form.matchName
     const preservedMatchLogoUrl = form.matchLogoUrl
     const preservedSubtitle = form.subtitle
     const preservedSubtitle2 = form.subtitle2
     const preservedSubtitle3 = form.subtitle3
 
-    // 重置表单数据
-    Object.assign(form, {
-      "sessionLabel": "东",
-      "currentRound": "1",
-      "matchNumber": 0,
-      "fieldSupply": "",
-      "treasureTile": [
-      ],
-      "matchName": preservedMatchName,
-      "matchLogoUrl": preservedMatchLogoUrl,
-      "subtitle": preservedSubtitle,
-      "subtitle2": preservedSubtitle2,
-      "subtitle3": preservedSubtitle3,
-      "honba": 0,
-      "riichiSticks": 0,
-      "players": [
-        {
-          "id": "p1",
-          "badgeText": "选手1",
-          "badgeColor": "#6dd400",
-          "playerName": "选手1",
-          "teamName": "战队1",
-          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-          "tagline": "",
-          "score": 25000,
-          "ptPoint": "",
-          "wind": "",
-          "highlight": false,
-          "melds": [],
-          "tenpai": null,
-        },
-        {
-          "id": "p2",
-          "badgeText": "选手2",
-          "badgeColor": "#f472b6",
-          "playerName": "选手2",
-          "teamName": "战队2",
-          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-          "tagline": "",
-          "score": 25000,
-          "ptPoint": "",
-          "wind": "",
-          "highlight": false,
-          "melds": [
+    const resetPlayers =
+      form.players.length > 0
+        ? form.players.map((p) =>
+            reactive({
+              id: p.id,
+              badgeText: p.badgeText,
+              badgeColor: p.badgeColor,
+              playerName: p.playerName,
+              teamName: p.teamName,
+              teamLogoUrl: p.teamLogoUrl,
+              tagline: p.tagline,
+              score: 25000,
+              ptPoint: '',
+              wind: '' as PlayerBoard['wind'],
+              highlight: false,
+              melds: [],
+              tenpai: null,
+              stoppedHu: false,
+            })
+          )
+        : getDefaultPlayers()
 
-          ],
-          "tenpai": null,
-        },
-        {
-          "id": "p3",
-          "badgeText": "选手3",
-          "badgeColor": "#60a5fa",
-          "playerName": "选手3",
-          "teamName": "战队3",
-          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-          "tagline": "",
-          "score": 25000,
-          "ptPoint": "",
-          "wind": "",
-          "highlight": false,
-          "melds": [],
-          "tenpai": null,
-        },
-        {
-          "id": "p4",
-          "badgeText": "选手4",
-          "badgeColor": "#f59e0b",
-          "playerName": "选手4",
-          "teamName": "战队4",
-          "teamLogoUrl": "https://q8.itc.cn/images01/20241022/cc4b10e6d3334352a05fae4b715a0582.png",
-          "tagline": "",
-          "score": 25000,
-          "ptPoint": "",
-          "wind": "",
-          "highlight": false,
-          "melds": [],
-          "tenpai": null,
-        }
-      ]
+    Object.assign(form, {
+      sessionLabel: '东',
+      currentRound: '1',
+      matchNumber: 0,
+      fieldSupply: '',
+      treasureTile: [],
+      matchName: preservedMatchName,
+      matchLogoUrl: preservedMatchLogoUrl,
+      subtitle: preservedSubtitle,
+      subtitle2: preservedSubtitle2,
+      subtitle3: preservedSubtitle3,
+      honba: 0,
+      riichiSticks: 0,
+      players: resetPlayers,
     })
 
-    // 重置当前局次数字
     currentRoundNum.value = 1
 
-    // 显示成功提示
-    showToast('所有数据已清空', 'success')
+    showToast('场次与分数已重置', 'success')
 
-    console.log('所有数据已清空')
+    console.log('场次与分数已重置（已保留选手/队伍信息）')
   }
+}
+
+const toggleStoppedHu = (playerId: string) => {
+  const p = form.players.find((x) => x.id === playerId)
+  if (!p) return
+  p.stoppedHu = !p.stoppedHu
 }
 
 
 const addTreasureTile = () => {
-  form.treasureTile.push('')
+  // 不再需要这个函数，改为点击选择
+}
+
+// 切换宝牌选择（点击添加/移除）
+const toggleTreasureTileSelection = (tileCode: string) => {
+  // 找到对应的选项，使用value（filename格式）来存储，以兼容OverlayView
+  const option = treasureTileOptions.find(opt => opt.code === tileCode)
+  if (!option) return
+  
+  const tileValue = option.value // 使用filename格式（带.png）
+  
+    // 未选中，检查是否已达到最大数量（5个）
+    if (form.treasureTile.length >= 5) {
+      return // 已达到最大数量，不允许添加
+    }
+    // 添加
+    form.treasureTile.push(tileValue)
+}
+
+// 判断宝牌是否被选中
+const isTreasureTileSelected = (tileCode: string) => {
+  const option = treasureTileOptions.find(opt => opt.code === tileCode)
+  if (!option) return false
+  return form.treasureTile.includes(option.value)
+}
+
+// 获取宝牌被选中的次数
+const getTreasureTileCount = (tileCode: string) => {
+  const option = treasureTileOptions.find(opt => opt.code === tileCode)
+  if (!option) return 0
+  return form.treasureTile.filter(t => t === option.value).length
+}
+
+// 判断是否可以点击（未达到最大数量或已选中）
+const isTreasureTileClickable = (tileCode: string) => {
+  if (isTreasureTileSelected(tileCode)) {
+    return true // 已选中的可以取消
+  }
+  return form.treasureTile.length < 5 // 未达到最大数量可以添加
 }
 
 const removeTreasureTile = (index: number) => {
@@ -863,7 +1007,11 @@ const saveWin = () => {
   form.players.forEach(player => {
     player.tenpai = null
     player.melds = []
+    player.stoppedHu = false
   })
+
+  // 清除宝牌状态
+  form.treasureTile = []
 
 
   // 判断是否连庄
@@ -898,6 +1046,56 @@ const addTenpaiTile = () => {
 
 const removeTenpaiTile = (index: number) => {
   tenpaiForm.tiles.splice(index, 1)
+}
+
+// 判断听牌是否被选中
+const isTenpaiTileSelected = (tileCode: string) => {
+  return tenpaiForm.tiles.some(t => t.code === tileCode)
+}
+
+// 切换听牌选择
+const toggleTenpaiTileSelection = (tileCode: string) => {
+  const index = tenpaiForm.tiles.findIndex(t => t.code === tileCode)
+  if (index > -1) {
+    // 已选中，移除
+    tenpaiForm.tiles.splice(index, 1)
+  } else {
+    // 未选中，添加（默认有役，数量为空）
+    tenpaiForm.tiles.push({
+      code: tileCode,
+      status: 'yaku',
+      count: undefined
+    })
+  }
+}
+
+// 获取听牌配置（返回响应式对象）
+const getTenpaiTileConfig = (tileCode: string) => {
+  const tile = tenpaiForm.tiles.find(t => t.code === tileCode)
+  if (!tile) {
+    // 如果找不到，创建一个新的（这种情况理论上不应该发生）
+    const newTile: TenpaiTile = {
+      code: tileCode,
+      status: 'yaku',
+      count: undefined
+    }
+    tenpaiForm.tiles.push(newTile)
+    return newTile
+  }
+  return tile
+}
+
+// 通过code移除听牌
+const removeTenpaiTileByCode = (tileCode: string) => {
+  const index = tenpaiForm.tiles.findIndex(t => t.code === tileCode)
+  if (index > -1) {
+    tenpaiForm.tiles.splice(index, 1)
+  }
+}
+
+// 清空所有听牌
+const clearAllTenpaiTiles = () => {
+  tenpaiForm.tiles = tenpaiForm.tiles.filter(t => !t.code)
 }
 
 const liuJu = () => {
@@ -964,6 +1162,8 @@ const liuJu = () => {
     player.tenpai = null
     player.melds = []
   })
+  //清除宝牌状态
+  form.treasureTile = []
 }
 
 const saveTenpai = () => {
@@ -1066,58 +1266,31 @@ const initializePlayerLogoType = (playerId: string) => {
         </label>
         <label>
           是否切上满贯
-          <input type="checkbox" v-model="form.isKili" />
-        </label>
-        <label class="full">
-          <div class="title-row">
-            <h2 style="margin: 0;">宝牌</h2>
-            <div style="display: flex; gap: 8px;">
-              <button type="button" class="ghost" @click="addTreasureTile">+ 添加</button>
-              <button type="button" class="ghost danger" @click="clearTreasureTiles"
-                :disabled="!form.treasureTile.length">清空</button>
-            </div>
-          </div>
-          <div v-if="!form.treasureTile.length" class="empty-tip">尚未添加宝牌，点击上方按钮添加。</div>
-          <div class="treasure-tile-list">
-            <div v-for="(tile, index) in form.treasureTile" :key="index" class="treasure-tile-item">
-              <div class="treasure-tile-selector">
-                <select v-model="form.treasureTile[index]" class="treasure-select">
-                  <option value="">请选择宝牌</option>
-                  <option v-for="opt in treasureTileOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </option>
-                </select>
-                <div v-if="form.treasureTile[index]" class="treasure-preview">
-                  <img :src="treasureTileOptions.find(opt => opt.value === form.treasureTile[index])?.src"
-                    :alt="form.treasureTile[index]" />
-                </div>
-              </div>
-              <button type="button" class="ghost danger" @click="removeTreasureTile(index)">移除</button>
-            </div>
-          </div>
-        </label>
-        <label class="full">
-          比赛名称
-          <input v-model="form.matchName" />
-        </label>
-        <label class="full">
-          比赛副标题
-          <input v-model="form.subtitle" placeholder="例如：2025.11.23" />
-        </label>
-        <label class="full">
-          比赛副标题2
-          <input v-model="form.subtitle2" placeholder="例如：2025.11.23" />
-        </label>
-        <label class="full">
-          比赛副标题3
-          <input v-model="form.subtitle3" placeholder="例如：2025.11.23" />
+          <input type="checkbox" :checked="form.isKili" @change="form.isKili = !form.isKili; handleIsKiliChange()" />
         </label>
         <label>
           半庄数
-          <input v-model.number="form.matchNumber" type="number" min="1" />
+          <input v-model.number="form.matchNumber" type="number" min="0" />
         </label>
-        <label class="full">
+        <label>
+          比赛名称
+          <input v-model="form.matchName" />
+        </label>
+        <label>
+          比赛副标题
+          <input v-model="form.subtitle" placeholder="例如：2025.11.23" />
+        </label>
+        <label>
+          比赛副标题2
+          <input v-model="form.subtitle2" placeholder="例如：2025.11.23" />
+        </label>
+        <label>
+          比赛副标题3
+          <input v-model="form.subtitle3" placeholder="例如：2025.11.23" />
+        </label>
+        <label >
           <div class="image-input-section">
+            <div>
             <div class="title-row">
               <span>比赛 Logo</span>
               <div class="input-type-buttons">
@@ -1134,6 +1307,7 @@ const initializePlayerLogoType = (playerId: string) => {
             <input v-if="matchLogoInputType === 'url'" v-model="form.matchLogoUrl"
               placeholder="https://example.com/logo.png" />
             <input v-else type="file" accept="image/*" @change="handleMatchLogoFile" class="file-input" />
+          </div>
             <div v-if="form.matchLogoUrl" class="image-preview">
               <img :src="form.matchLogoUrl" alt="比赛Logo预览" class="preview-image" />
             </div>
@@ -1147,24 +1321,16 @@ const initializePlayerLogoType = (playerId: string) => {
         <h2>战队信息</h2>
         <!-- <button type="button" class="ghost" @click="addPlayer" :disabled="form.players.length >= 4">+ 添加</button> -->
       </div>
-      <p class="hint">建议保持 4 个战队以匹配底部布局。</p>
-      <div class="player-config-container">
-        <button type="button" class="ghost" @click="liuJu()">流局</button>
-      </div>
-      <div v-if="!form.players.length" class="empty-tip">尚未添加战队。</div>
       <div class="players-row">
         <article v-for="(player, index) in form.players" :key="player.id" class="player-config">
-          <div class="player-config-container">
-            {{ currentRoundNum == index + 1 ? '亲' : '子' }}
-            <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'ziMo')">自摸</button>
-            <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'rongHe')">荣和</button>
-            <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'riichi')">立直</button>
-          </div>
           <header>
-            <h3>战队 {{ index + 1 }}</h3>
+            <label>战队 {{ index + 1 }}
+              <input v-model="player.teamName" />
+            </label>
+            <span class="dealer-indicator">{{ currentRoundNum == index + 1 ? '亲' : '子' }}</span>
             <!-- <button type="button" class="ghost danger" @click="removePlayer(index)">移除</button> -->
           </header>
-          <div class="grid one">
+          <div class="grid three">
             <label>
               选手名称
               <input v-model="player.badgeText" />
@@ -1173,49 +1339,15 @@ const initializePlayerLogoType = (playerId: string) => {
               名称颜色
               <input :style="{ background: player.badgeColor }" v-model="player.badgeColor" type="color" />
             </label>
-            <!-- <label>
-            选手名称
-            <input v-model="player.playerName" />
-          </label> -->
-            <label class="full">
-              <div class="title-row">
-                <span>副露选择</span>
-                <button type="button" class="ghost" @click="openMeldModal(player.id)">+ 添加副露</button>
-              </div>
-              <div v-if="!player.melds.length" class="empty-tip">尚未添加副露</div>
-              <div class="meld-list">
-                <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" class="meld-item">
-                  <div class="meld-preview">
-                    <img v-if="meldImages[`${player.id}-${meld.id}`]" :src="meldImages[`${player.id}-${meld.id}`]"
-                      :alt="`meld-${meld.id}`" class="meld-image" />
-                  </div>
-                  <button type="button" class="ghost danger" @click="removeMeld(player.id, meldIndex)">移除</button>
-                </div>
-              </div>
+            <label>
+              分数
+              <input v-model.number="player.score" type="number" />
             </label>
-            <label class="full">
-              <div class="title-row">
-                <span>听牌选择</span>
-                <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'tenpai')">配置听牌</button>
-              </div>
-              <div v-if="!player.tenpai" class="empty-tip">尚未配置听牌</div>
-              <div v-else class="tenpai-preview">
-                <div class="tenpai-status">
-                  <span class="status-badge" :class="player.tenpai.status">{{ player.tenpai.status === 'riichi' ? '立直' :
-                    '听牌' }}</span>
-                  <span v-if="player.tenpai.isFuriten" class="furiten-badge">振听</span>
-                </div>
-                <div class="tenpai-tiles">
-                  <div v-for="tile in player.tenpai.tiles" :key="tile.code" class="tenpai-tile-item">
-                    <img :src="getTileImage(tile.code)" :alt="tile.code" class="tenpai-tile" />
-                    <span class="tile-status" :class="tile.status">{{ tile.status === 'yaku' ? '有役' : '无役' }}</span>
-                    <span v-if="tile.count" class="tile-count">{{ tile.count }}张</span>
-                  </div>
-                </div>
-              </div>
-            </label>
+          </div>
+          <div>
             <label class="full">
               <div class="image-input-section">
+                <div>
                 <div class="title-row">
                   <span>战队 Logo</span>
                   <div class="input-type-buttons">
@@ -1235,19 +1367,65 @@ const initializePlayerLogoType = (playerId: string) => {
                   placeholder="https://example.com/team.png" />
                 <input v-else type="file" accept="image/*" @change="handlePlayerLogoFile(player.id, $event)"
                   class="file-input" />
+                  </div>
                 <div v-if="player.teamLogoUrl" class="image-preview">
                   <img :src="player.teamLogoUrl" alt="战队Logo预览" class="preview-image" />
                 </div>
               </div>
             </label>
-            <!-- <label class="full">
-            副标题/口号
-            <input v-model="player.tagline" placeholder="例：齐柏林未潜艇" />
-          </label> -->
-            <label>
-              分数
-              <input v-model.number="player.score" type="number" />
-            </label>
+            
+            <!-- 玩家操作按钮和状态（分数下方） -->
+            <div class="player-actions-section">
+              <div class="action-buttons-row">
+                <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'ziMo')">自摸</button>
+                <button type="button" class="ghost" @click="openWinModal(player.id, index + 1, 'rongHe')">荣和</button>
+                <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'riichi')">立直</button>
+                <button
+                  type="button"
+                  :class="['ghost', { active: player.stoppedHu }]"
+                  @click="toggleStoppedHu(player.id)"
+                >停胡</button>
+              </div>
+              
+              <label class="full">
+                <div class="title-row">
+                  <span>听牌选择</span>
+                  <button type="button" class="ghost" @click="openTenpaiModal(player.id, 'tenpai')">配置听牌</button>
+                </div>
+                <div v-if="!player.tenpai" class="empty-tip">尚未配置听牌</div>
+                <div v-else class="tenpai-preview">
+                  <div class="tenpai-status">
+                    <span class="status-badge" :class="player.tenpai.status">{{ player.tenpai.status === 'riichi' ? '立直' :
+                      '听牌' }}</span>
+                    <span v-if="player.tenpai.isFuriten" class="furiten-badge">振听</span>
+                  </div>
+                  <div class="tenpai-tiles">
+                    <div v-for="tile in player.tenpai.tiles" :key="tile.code" class="tenpai-tile-item">
+                      <img :src="getTileImage(tile.code)" :alt="tile.code" class="tenpai-tile" />
+                      <span class="tile-status" :class="tile.status">{{ tile.status === 'yaku' ? '有役' : '无役' }}</span>
+                      <span v-if="tile.count" class="tile-count">{{ tile.count }}张</span>
+                    </div>
+                  </div>
+                </div>
+              </label>
+              
+              <label class="full">
+                <div class="title-row">
+                  <span>副露选择</span>
+                  <button type="button" class="ghost" @click="openMeldModal(player.id)">+ 添加副露</button>
+                </div>
+                <div v-if="!player.melds.length" class="empty-tip">尚未添加副露</div>
+                <div class="meld-list">
+                  <div v-for="(meld, meldIndex) in player.melds" :key="meld.id" class="meld-item">
+                    <div class="meld-preview">
+                      <img v-if="meldImages[`${player.id}-${meld.id}`]" :src="meldImages[`${player.id}-${meld.id}`]"
+                        :alt="`meld-${meld.id}`" class="meld-image" />
+                    </div>
+                    <button type="button" class="ghost danger" @click="removeMeld(player.id, meldIndex)">移除</button>
+                  </div>
+                </div>
+              </label>
+            </div>
             <!-- <label>
             座位风
             <select v-model="player.wind">
@@ -1262,6 +1440,51 @@ const initializePlayerLogoType = (playerId: string) => {
           </label> -->
           </div>
         </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="title-row">
+        <h2>牌局设置</h2>
+        <button type="button" class="ghost" @click="liuJu()">流局</button>
+      </div>
+      <div class="treasure-tile-section">
+          <div class="title-row" style="margin-bottom: 6px;">
+            <h2 style="margin: 0; font-size: 14px;">宝牌</h2>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span style="font-size: 12px; color: #64748b;">已选 {{ form.treasureTile.length }}/5</span>
+              <button type="button" class="ghost danger" @click="clearTreasureTiles"
+                :disabled="!form.treasureTile.length">清空</button>
+            </div>
+          </div>
+          <div class="tile-grid">
+            <div 
+              v-for="option in treasureTileOptionsWithoutZero" 
+              :key="option.code" 
+              :class="['tile-option', {
+                selected: isTreasureTileSelected(option.code),
+                disabled: !isTreasureTileClickable(option.code)
+              }]" 
+              @click="isTreasureTileClickable(option.code) && toggleTreasureTileSelection(option.code)"
+            >
+              <img :src="option.src" :alt="option.label" class="tile-image" />
+              <span v-if="isTreasureTileSelected(option.code)" class="tile-count-badge">
+                {{ getTreasureTileCount(option.code) }}
+              </span>
+            </div>
+          </div>
+          <!-- 已选择的宝牌列表 -->
+          <div v-if="form.treasureTile.length" class="selected-treasure-tiles">
+            <label style="margin-top: 6px; display: block; font-size: 11px;">已选择的宝牌（{{ form.treasureTile.length }}/5）</label>
+            <div class="treasure-tile-list">
+              <div v-for="(tile, index) in form.treasureTile" :key="`${tile}-${index}`" class="treasure-tile-item">
+                <div class="treasure-preview">
+                  <img :src="treasureTileOptions.find(opt => opt.value === tile)?.src" :alt="tile" />
+                </div>
+                <button type="button" class="ghost danger small" @click="removeTreasureTile(index)">移除</button>
+              </div>
+            </div>
+          </div>
       </div>
     </section>
 
@@ -1331,7 +1554,6 @@ const initializePlayerLogoType = (playerId: string) => {
                 disabled: !isTileClickable(option.code)
               }]" @click="isTileClickable(option.code) && toggleTileSelection(option.code)">
                 <img :src="option.src" :alt="option.label" class="tile-image" />
-                <span class="tile-label">{{ option.label }}</span>
               </div>
             </div>
           </div>
@@ -1381,27 +1603,52 @@ const initializePlayerLogoType = (playerId: string) => {
             </label>
           </div>
           <div class="title-row">
-            <span>听牌数组</span>
-            <button type="button" class="ghost" @click="addTenpaiTile">+ 添加听牌</button>
+            <span>听牌数组（已选 {{ tenpaiForm.tiles.filter(t => t.code).length }}）</span>
+            <button type="button" class="ghost danger" @click="clearAllTenpaiTiles" 
+              :disabled="!tenpaiForm.tiles.filter(t => t.code).length">清空</button>
           </div>
-          <div class="tenpai-config-list">
-            <div v-for="(tile, index) in tenpaiForm.tiles" :key="index" class="tenpai-config-item">
-              <select v-model="tile.code" class="tile-select">
-                <option value="">请选择牌</option>
-                <option v-for="opt in treasureTileOptions" :key="opt.value" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <select v-model="tile.status" class="status-select">
-                <option value="yaku">有役</option>
-                <option value="noyaku">无役</option>
-              </select>
-              <input v-model.number="tile.count" type="number" min="1" max="4" placeholder="数量(可选)"
-                class="count-input" />
-              <div v-if="tile.code" class="tile-preview">
-                <img :src="getTileImage(tile.code)" :alt="tile.code" class="preview-tile" />
+          <div class="tile-grid">
+            <div 
+              v-for="option in treasureTileOptionsWithoutZero" 
+              :key="option.code" 
+              :class="['tile-option', {
+                selected: isTenpaiTileSelected(option.code)
+              }]" 
+              @click="toggleTenpaiTileSelection(option.code)"
+            >
+              <img :src="option.src" :alt="option.label" class="tile-image" />
+              <div v-if="isTenpaiTileSelected(option.code)" class="tenpai-tile-config">
+                <select v-model="getTenpaiTileConfig(option.code).status" class="tenpai-status-select" @click.stop>
+                  <option value="yaku">有役</option>
+                  <option value="noyaku">无役</option>
+                </select>
+                <input 
+                  v-model.number="getTenpaiTileConfig(option.code).count" 
+                  type="number" 
+                  min="0" 
+                  max="4" 
+                  clearable
+                  placeholder="数量" 
+                  class="tenpai-count-input"
+                  @click.stop
+                />
               </div>
-              <button type="button" class="ghost danger" @click="removeTenpaiTile(index)">移除</button>
+            </div>
+          </div>
+          <!-- 已选择的听牌列表 -->
+          <div v-if="tenpaiForm.tiles.filter(t => t.code).length" class="selected-tenpai-tiles">
+            <label style="margin-top: 10px; display: block; font-size: 12px;">已选择的听牌（{{ tenpaiForm.tiles.filter(t => t.code).length }}）</label>
+            <div class="tenpai-tile-list">
+              <div v-for="(tile, index) in tenpaiForm.tiles.filter(t => t.code)" :key="`${tile.code}-${index}`" class="tenpai-tile-item">
+                <div class="treasure-preview">
+                  <img :src="getTileImage(tile.code)" :alt="tile.code" />
+                </div>
+                <div class="tenpai-tile-info">
+                <span class="tenpai-status-badge" :class="tile.status">{{ tile.status === 'yaku' ? '有役' : '无役' }}</span>
+                <span v-if="tile.count" class="tenpai-count-badge">{{ tile.count }}张</span>
+                <button type="button" class="ghost danger small" @click="removeTenpaiTileByCode(tile.code)">移除</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1533,39 +1780,39 @@ const initializePlayerLogoType = (playerId: string) => {
 
 <style scoped>
 .panel-root {
-  padding: 24px 28px 200px;
+  padding: 10px 16px 140px;
   font-family: '微软雅黑', 'Microsoft YaHei', 'Inter', sans-serif;
   color: #102035;
 }
 
 h1 {
-  margin-bottom: 18px;
-  font-size: 26px;
+  margin-bottom: 8px;
+  font-size: 18px;
 }
 
 section {
   background: #ffffff;
-  border-radius: 16px;
-  padding: 18px 20px 12px;
-  margin-bottom: 18px;
+  border-radius: 8px;
+  padding: 8px 12px 6px;
+  margin-bottom: 8px;
   box-shadow: 0 15px 30px rgba(15, 23, 42, 0.06);
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 h2 {
-  margin: 0 0 12px;
-  font-size: 18px;
+  margin: 0 0 6px;
+  font-size: 14px;
   color: #0f172a;
 }
 
 h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .grid {
   display: grid;
-  gap: 14px;
+  gap: 6px;
 }
 
 .grid.one {
@@ -1576,25 +1823,29 @@ h3 {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
+.grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .grid .full {
   grid-column: 1 / -1;
 }
 
 label {
-  font-size: 14px;
+  font-size: 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   color: #475569;
 }
 
 input,
 textarea,
 select {
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
   border: 1px solid rgba(148, 163, 184, 0.6);
-  font-size: 14px;
+  font-size: 12px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -1621,9 +1872,9 @@ textarea {
 }
 
 .treasure-preview {
-  width: 60px;
-  height: 60px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.05);
   display: flex;
@@ -1639,19 +1890,20 @@ textarea {
 }
 
 .treasure-tile-list {
-  margin-top: 8px;
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .treasure-tile-item {
   display: flex;
-  gap: 12px;
+  gap: 4px;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
-}
-
-.treasure-tile-item:last-child {
-  border-bottom: none;
+  padding: 4px 8px;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 4px;
 }
 
 .treasure-tile-item .treasure-tile-selector {
@@ -1701,16 +1953,16 @@ textarea {
 
 .players-row {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .player-config {
   flex: 1;
   min-width: 250px;
-  padding: 16px;
+  padding: 8px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(248, 250, 252, 0.5);
 }
 
@@ -1722,27 +1974,27 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .hint {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 6px;
+  font-size: 11px;
   color: #94a3b8;
 }
 
 .empty-tip {
-  padding: 6px 0 16px;
+  padding: 2px 0 6px;
   color: #94a3b8;
-  font-size: 14px;
+  font-size: 11px;
 }
 
 button {
   border: none;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   border-radius: 999px;
-  padding: 10px 18px;
+  padding: 5px 10px;
   transition: transform 0.1s ease, box-shadow 0.2s ease;
 }
 
@@ -1763,23 +2015,23 @@ button.ghost.danger:hover:not(:disabled) {
 
 .floating-submit {
   position: fixed;
-  left: 24px;
-  right: 24px;
-  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  bottom: 8px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  border-radius: 18px;
-  padding: 16px 18px;
+  border-radius: 8px;
+  padding: 8px 10px;
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
   border: 1px solid rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .button-row {
   display: flex;
-  gap: 12px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -1787,8 +2039,8 @@ button.primary {
   background: linear-gradient(120deg, #2563eb, #7c3aed);
   color: #fff;
   flex: 1;
-  font-size: 16px;
-  padding: 12px 20px;
+  font-size: 12px;
+  padding: 6px 12px;
 }
 
 button.primary:disabled {
@@ -1894,16 +2146,16 @@ button.primary:disabled {
 .tenpai-preview {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 
 .meld-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 6px;
+  padding: 6px;
   background: rgba(59, 130, 246, 0.05);
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid rgba(59, 130, 246, 0.1);
 }
 
@@ -1914,7 +2166,7 @@ button.primary:disabled {
 }
 
 .meld-image {
-  height: 40px;
+  height: 28px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -1922,14 +2174,14 @@ button.primary:disabled {
 
 .tenpai-status {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .status-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -1953,7 +2205,7 @@ button.primary:disabled {
 
 .tenpai-tiles {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
@@ -1961,18 +2213,18 @@ button.primary:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tenpai-tile {
-  width: 32px;
-  height: 40px;
+  width: 24px;
+  height: 30px;
   object-fit: contain;
 }
 
 .tile-status {
-  font-size: 10px;
-  padding: 2px 4px;
+  font-size: 9px;
+  padding: 2px 3px;
   border-radius: 2px;
 }
 
@@ -1987,7 +2239,7 @@ button.primary:disabled {
 }
 
 .tile-count {
-  font-size: 10px;
+  font-size: 9px;
   color: #6b7280;
 }
 
@@ -2007,10 +2259,10 @@ button.primary:disabled {
 
 .modal-content {
   background: white;
-  border-radius: 16px;
+  border-radius: 12px;
   width: 90%;
   max-width: 600px;
-  max-height: 80vh;
+  max-height: 85vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2020,24 +2272,24 @@ button.primary:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
+  padding: 10px 14px;
   border-bottom: 1px solid #e5e7eb;
 }
 
 .modal-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   cursor: pointer;
   color: #6b7280;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2048,16 +2300,16 @@ button.primary:disabled {
 }
 
 .modal-body {
-  padding: 24px;
+  padding: 12px 14px;
   overflow-y: auto;
   flex: 1;
 }
 
 .modal-footer {
   display: flex;
-  gap: 12px;
+  gap: 6px;
   justify-content: flex-end;
-  padding: 20px 24px;
+  padding: 10px 14px;
   border-top: 1px solid #e5e7eb;
 }
 
@@ -2065,18 +2317,18 @@ button.primary:disabled {
 .tenpai-config-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .meld-config-item,
 .tenpai-config-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 8px;
+  padding: 8px;
   background: #f9fafb;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .tile-select,
@@ -2133,26 +2385,26 @@ button.primary:disabled {
 .source-player-section,
 .tile-selection-section,
 .selected-tiles-preview {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .meld-type-buttons,
 .source-player-buttons {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .meld-type-btn,
 .source-player-btn {
-  padding: 8px 16px;
+  padding: 4px 8px;
   border: 2px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 4px;
   background: white;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 14px;
+  font-size: 11px;
 }
 
 .meld-type-btn:hover,
@@ -2169,27 +2421,28 @@ button.primary:disabled {
 
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-  max-height: 300px;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 200px;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .tile-option {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px;
+  gap: 2px;
+  padding: 4px;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
   background: #f9fafb;
+  position: relative;
 }
 
 .tile-option:hover {
@@ -2208,58 +2461,162 @@ button.primary:disabled {
   pointer-events: none;
 }
 
+.tile-count-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tile-option {
+  position: relative;
+}
+
+.tenpai-tile-config {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 2px;
+  width: 100%;
+}
+
+.tenpai-status-select {
+  width: 100%;
+  padding: 3px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  font-size: 10px;
+  background: white;
+}
+
+.tenpai-count-input {
+  width: 100%;
+  padding: 3px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  font-size: 10px;
+  text-align: center;
+}
+
+.selected-tenpai-tiles {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+}
+
+.tenpai-tile-list{
+  display: flex;
+  flex-direction: row;
+}
+
+.tenpai-tile-info{
+  display: flex;
+  flex-direction: row;
+}
+
+.tenpai-status-badge {
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.tenpai-status-badge.yaku {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.tenpai-status-badge.noyaku {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.tenpai-count-badge {
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.selected-treasure-tiles {
+  margin-top: 6px;
+}
+
+.treasure-label {
+  font-size: 12px;
+  color: #374151;
+  margin: 0 6px;
+}
+
+.ghost.danger.small {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
 .tile-image {
-  width: 32px;
-  height: 40px;
+  width: 24px;
+  height: 30px;
   object-fit: contain;
 }
 
 .tile-label {
-  font-size: 10px;
+  font-size: 8px;
   text-align: center;
   color: #6b7280;
 }
 
 .selection-hint {
-  font-size: 12px;
+  font-size: 11px;
   color: #6b7280;
   font-weight: normal;
 }
 
 .selected-tiles {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .selected-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px;
+  gap: 3px;
+  padding: 6px;
   background: #dbeafe;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid #3b82f6;
 }
 
 .selected-tile-image {
-  width: 24px;
-  height: 30px;
+  width: 20px;
+  height: 25px;
   object-fit: contain;
 }
 
 .selected-tile span {
-  font-size: 10px;
+  font-size: 9px;
   color: #1d4ed8;
 }
 
 /* Image Input Styles */
 .image-input-section {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  gap: 6px;
 }
 
 .input-type-buttons {
@@ -2268,13 +2625,13 @@ button.primary:disabled {
 }
 
 .input-type-btn {
-  padding: 4px 12px;
+  padding: 2px 8px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 3px;
   background: white;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .input-type-btn:hover {
@@ -2292,18 +2649,18 @@ button.primary:disabled {
 }
 
 .image-preview {
-  margin-top: 8px;
-  padding: 8px;
+  margin-top: 4px;
+  padding: 4px;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #f9fafb;
 }
 
 .preview-image {
-  max-width: 200px;
-  max-height: 100px;
+  max-width: 120px;
+  max-height: 60px;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 /* Win Modal Styles */
@@ -2312,82 +2669,82 @@ button.primary:disabled {
 }
 
 .score-section {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .score-section label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .score-select {
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
   border: 1px solid rgba(148, 163, 184, 0.6);
-  font-size: 14px;
+  font-size: 12px;
   background: white;
 }
 
 .score-display {
-  margin-top: 24px;
-  padding: 16px;
+  margin-top: 10px;
+  padding: 8px;
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-  border-radius: 12px;
+  border-radius: 6px;
   border: 2px solid #3b82f6;
 }
 
 .score-result {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .score-label {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 600;
   color: #1e40af;
 }
 
 .score-value {
   flex: 1;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   color: #1e40af;
 }
 
 .score-type {
   display: inline-block;
-  padding: 4px 12px;
+  padding: 3px 8px;
   background: #3b82f6;
   color: white;
-  border-radius: 6px;
-  font-size: 16px;
+  border-radius: 4px;
+  font-size: 13px;
   font-weight: 600;
-  margin-right: 12px;
+  margin-right: 8px;
 }
 
 .score-details {
-  margin-top: 8px;
-  font-size: 14px;
+  margin-top: 6px;
+  font-size: 12px;
   color: #1e40af;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .special-score {
   color: #dc2626;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .bonus-info {
-  margin-top: 8px;
-  padding: 8px 12px;
+  margin-top: 6px;
+  padding: 6px 8px;
   background: rgba(59, 130, 246, 0.1);
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: 4px;
+  font-size: 11px;
   color: #1e40af;
 }
 
@@ -2399,8 +2756,50 @@ button.primary:disabled {
   flex-wrap: wrap;
 }
 
+.dealer-indicator {
+  display: inline-block;
+  padding: 3px 8px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.player-actions-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.action-buttons-row {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.action-buttons-row .ghost {
+  min-width: 60px;
+}
+
+.action-buttons-row .ghost.active {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: #fff;
+}
+
+.action-buttons-row .ghost.active:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #fff;
+}
+
 @media (max-width: 520px) {
-  .grid.two {
+  .grid.two,
+  .grid.three {
     grid-template-columns: 1fr;
   }
 

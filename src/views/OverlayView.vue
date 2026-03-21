@@ -220,13 +220,13 @@ const getScoreChangeStyle = (playerId: string) => {
           <div class="round-meta treasure-tiles">
             <div class="treasure-tiles-list">
               <img
-                v-for="(tile, index) in matchState.treasureTile"
+                v-for="(tile, index) in matchState.treasureTile.filter(tile => tile !== '')"
                 :key="index"
                 :src="tileMap[tile.replace('.png', '').toLowerCase()] || ''"
                 :alt="tile"
                 class="treasure-tile-img"
               />
-              <span v-if="!matchState.treasureTile?.length" class="treasure-empty">无</span>
+              <span v-if="!matchState.treasureTile.filter(tile => tile !== '').length" class="treasure-empty">无</span>
             </div>
           </div>
         </div>
@@ -278,8 +278,8 @@ const getScoreChangeStyle = (playerId: string) => {
       >
        
         <div class="card-body">
-          <div class="logo" v-if="player.teamLogoUrl">
-            <img :src="player.teamLogoUrl" :alt="player.teamName" />
+          <div class="logo" :class="{ 'logo-empty': !player.teamLogoUrl }">
+            <img v-if="player.teamLogoUrl" :src="player.teamLogoUrl" :alt="player.teamName" />
             <!-- 状态指示层 -->
             <div class="status-overlay" v-if="player.tenpai">
               <!-- 振听状态 - 左上三角 -->
@@ -295,6 +295,9 @@ const getScoreChangeStyle = (playerId: string) => {
               <span v-if="player.tenpai.status === 'riichi'">立直</span>
               <span v-if="player.tenpai.status === 'tenpai'">听牌</span>
             </div>
+            </div>
+            <div class="status-overlay status-overlay--stopped-hu" v-if="player.stoppedHu">
+              <span class="stopped-hu-label">停胡</span>
             </div>
           </div>
           <div class="content">
@@ -706,7 +709,7 @@ const getScoreChangeStyle = (playerId: string) => {
 
 .logo {
   width: 140px;
-  height: 100%;
+  height: 140px;
   border-radius: 14px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.05);
@@ -716,6 +719,10 @@ const getScoreChangeStyle = (playerId: string) => {
   position: relative;
 }
 
+.logo-empty {
+  background: transparent;
+}
+    
 .logo img {
   width: 100%;
   height: 100%;
@@ -729,6 +736,24 @@ const getScoreChangeStyle = (playerId: string) => {
   width: 100%;
   height: 20%;
   pointer-events: none;
+}
+
+.status-overlay--stopped-hu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.stopped-hu-label {
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.1;
+  text-align: center;
+  width: 100%;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.9), 0 0 4px rgba(255, 255, 255, 0.7);
 }
 
 .status-triangle-left {
